@@ -1,6 +1,4 @@
-use std::{borrow::Borrow, ptr::null};
-
-use crate::needed_classes::*;
+use {crate::needed_classes::*, std::convert::TryFrom};
 
 pub fn PrsAsmImm(cc: &mut CCmpCtrl, arg: &mut CAsmArg) -> bool {
     if arg.imm_or_off_present {
@@ -10,7 +8,11 @@ pub fn PrsAsmImm(cc: &mut CCmpCtrl, arg: &mut CAsmArg) -> bool {
     arg.num.local_asm_undef_hash = None;
     arg.num.glbl_asm_undef_hash = None;
     cc.asm_undef_hash = None;
-    cc.asb_cnts = 0;
+    cc.abs_cnts = CAbsCntsI64 {
+        abs_addres: 0,
+        c_addres: 0,
+        externs: 0,
+    };
     cc.flags &= !(CCF_UNRESOLVED + CCF_LOCAL);
     if !IsLexExpression2Bin(cc, &arg.num.machine_code) {
         LexSkipEol(cc);
@@ -18,17 +20,26 @@ pub fn PrsAsmImm(cc: &mut CCmpCtrl, arg: &mut CAsmArg) -> bool {
         if cc.abs_cnts.externs {
             LexExcept(cc, "Extern Not Allowed at ");
         }
-        if cc.flags & CCF_UNRESOLVED {
-            if cc.flags & CCF_LOCAL {
-                arg.num.local_asm_undef_hash = cc.asm_undef_hash;
+        if cc.flags & CCF_UNRESOLVED > 0 {
+            if cc.flags & CCF_LOCAL > 0 {
+                arg.num.local_asm_undef_hash = match cc.asm_undef_hash {
+                    Some(a) => Some(*a),
+                    None => None,
+                };
                 cc.asm_undef_hash = None;
             } else {
-                arg.num.glbl_asm_undef_hash = cc.asm_undef_hash;
+                arg.num.glbl_asm_undef_hash = match cc.asm_undef_hash {
+                    Some(a) => Some(*a),
+                    None => None,
+                };
                 cc.asm_undef_hash = None;
             }
         } else {
             arg.num.i = Call(arg.num.machine_code);
-            arg.num.glbl_asm_undef_hash = cc.asm_undef_hash;
+            arg.num.glbl_asm_undef_hash = match cc.asm_undef_hash {
+                Some(a) => Some(*a),
+                None => None,
+            };
             cc.asm_undef_hash = None;
             arg.num.machine_code = None;
         }
@@ -220,7 +231,7 @@ pub fn AsmMakeArgMask(cc: &mut CCmpCtrl, arg: &mut CAsmArg) -> i64 {
         return res;
     }
     if arg.reg1_type == REGT_FSTK {
-        if arg.reg1 {
+        if arg.reg1 > 0 {
             res = 1 << ARGT_STI;
         } else {
             res = 1 << ARGT_ST0 | 1 << ARGT_STI;
@@ -228,7 +239,7 @@ pub fn AsmMakeArgMask(cc: &mut CCmpCtrl, arg: &mut CAsmArg) -> i64 {
         return res;
     }
 
-    res = cmp.size_arg_mask[arg.size];
+    res = cmp.size_arg_mask[usize::try_from(arg.size).unwrap_or(0)];
 
     if aotc.seg_size == 64 {
         res &= 0xFF0FFFFFFF;
@@ -268,25 +279,25 @@ pub fn AsmMakeArgMask(cc: &mut CCmpCtrl, arg: &mut CAsmArg) -> i64 {
         if arg.indirect {
             res &= 0x00FFFF0000;
         } else if arg.num.i < 0 {
-            if arg.num.i >= I8_MIN {
+            if arg.num.i >= i8::min_value() as i64 {
                 res &= 0x8FE;
-            } else if arg.num.i >= I16_MIN {
+            } else if arg.num.i >= i16::min_value() as i64 {
                 res &= 0x8EE;
-            } else if arg.num.i >= I32_MIN {
+            } else if arg.num.i >= i32::min_value() as i64 {
                 res &= 0x8CE;
             } else {
                 res &= 0x88E
             }
         } else {
-            if arg.num.i <= I8_MAX {
+            if arg.num.i <= i8::max_value() as i64 {
                 res &= 0xFFE;
-            } else if arg.num.i <= U8_MAX {
+            } else if arg.num.i <= u8::max_value() as i64 {
                 res &= 0xFEE;
-            } else if arg.num.i <= I16_MAX {
+            } else if arg.num.i <= i16::max_value() as i64 {
                 res &= 0xEEE;
-            } else if arg.num.i <= I32_MAX {
+            } else if arg.num.i <= i32::max_value() as i64 {
                 res &= 0xECE;
-            } else if arg.num.i <= U32_MAX {
+            } else if arg.num.i <= u32::max_value() as i64 {
                 res &= 0xC8E;
             } else {
                 res &= 0x88E;
@@ -328,22 +339,24 @@ pub fn AsmStoreNum(cc: &mut CCmpCtrl, num2: &mut CAsmNum2, cnt: i64, U8_avail: b
                     cc.lex_include_stk.line_num,
                     U8_avail,
                 );
-            } else if !num2.imm_flag && !(I8 <= num2.num.i && num2.num.i <= I8_MAX) {
+            } else if !num2.imm_flag
+                && !(i8::min_value() as i64 <= num2.num.i && num2.num.i <= i8::max_value() as i64)
+            {
                 LexExcept(cc, "Branch out of range at ".to_owned());
             }
             if num2.imm_flag {
-                if num2.num.abs_cnts.abs_addres & 1 {
-                    tmpa = CAOTAbsAddr {
-                        next: aotc.abss,
+                if num2.num.abs_cnts.abs_addres & 1 > 0 {
+                    *tmpa = CAOTAbsAddr {
+                        next: Some(aotc.abss),
                         rip: aotc.rip,
                         _type: AAT_ADD_U8,
                         pad: vec![],
                     };
                 }
             } else {
-                if num2.num.abs_cnts.c_addres & 1 {
-                    tmpa = CAOTAbsAddr {
-                        next: aotc.abss,
+                if num2.num.abs_cnts.c_addres & 1 > 0 {
+                    *tmpa = CAOTAbsAddr {
+                        next: Some(aotc.abss),
                         rip: aotc.rip,
                         _type: AAT_SUB_U8,
                         pad: vec![],
@@ -366,22 +379,25 @@ pub fn AsmStoreNum(cc: &mut CCmpCtrl, num2: &mut CAsmNum2, cnt: i64, U8_avail: b
                         cc.lex_include_stk.line_num,
                         U8_avail,
                     );
-                } else if !num2.imm_flag && !(I16 <= num2.num.i && num2.num.i <= I16_MAX) {
+                } else if !num2.imm_flag
+                    && !(i16::min_value() as i64 <= num2.num.i
+                        && num2.num.i <= i64::max_value() as i64)
+                {
                     LexExcept(cc, "Branch out of range at ".to_owned());
                 }
                 if num2.imm_flag {
-                    if num2.num.abs_cnts.abs_addres & 1 {
-                        tmpa = CAOTAbsAddr {
-                            next: aotc.abss,
+                    if num2.num.abs_cnts.abs_addres & 1 > 0 {
+                        *tmpa = CAOTAbsAddr {
+                            next: Some(aotc.abss),
                             rip: aotc.rip,
                             _type: AAT_ADD_U16,
                             pad: vec![],
                         };
                     }
                 } else {
-                    if num2.num.abs_cnts.c_addres & 1 {
-                        tmpa = CAOTAbsAddr {
-                            next: aotc.abss,
+                    if num2.num.abs_cnts.c_addres & 1 > 0 {
+                        *tmpa = CAOTAbsAddr {
+                            next: Some(aotc.abss),
                             rip: aotc.rip,
                             _type: AAT_SUB_U16,
                             pad: vec![],
@@ -405,11 +421,81 @@ pub fn AsmStoreNum(cc: &mut CCmpCtrl, num2: &mut CAsmNum2, cnt: i64, U8_avail: b
                         cc.lex_include_stk.line_num,
                         U8_avail,
                     );
+                } else if !num2.imm_flag
+                    && !(i32::min_value() as i64 <= num2.num.i
+                        && num2.num.i <= i32::max_value() as i64)
+                {
+                    LexExcept(cc, "Branch out of range at ".to_owned());
                 }
+                if num2.imm_flag {
+                    if num2.num.abs_cnts.abs_addres & 1 > 0 {
+                        *tmpa = CAOTAbsAddr {
+                            next: Some(aotc.abss),
+                            rip: aotc.rip,
+                            _type: AAT_ADD_U32,
+                            pad: vec![],
+                        };
+                    }
+                } else {
+                    if num2.num.abs_cnts.c_addres & 1 > 0 {
+                        *tmpa = CAOTAbsAddr {
+                            next: Some(aotc.abss),
+                            rip: aotc.rip,
+                            _type: AAT_SUB_U32,
+                            pad: vec![],
+                        }
+                    }
+                }
+                AOTStoreCodeU32(cc, num2.num.i);
+            } else if num2.U8_cnt == 8 {
+                if num2.num.local_asm_undef_hash.is_some() || num2.num.glbl_asm_undef_hash.is_some()
+                {
+                    AsmUnresolvedAdd(
+                        cc,
+                        num2.num.machine_code,
+                        IET_REL_I64 + num2.imm_flag,
+                        aotc.rip,
+                        num2.rel,
+                        num2.num.local_asm_undef_hash.unwrap_or_default(),
+                        num2.num.glbl_asm_undef_hash.unwrap_or_default(),
+                        cc.lex_include_stk.line_num,
+                        U8_avail,
+                    );
+                }
+                if num2.imm_flag {
+                    if num2.num.abs_cnts.abs_addres & 1 > 0 {
+                        *tmpa = CAOTAbsAddr {
+                            next: Some(aotc.abss),
+                            rip: aotc.rip,
+                            _type: AAT_ADD_U64,
+                            pad: vec![],
+                        };
+                    }
+                } else {
+                    if num2.num.abs_cnts.c_addres & 1 > 0 {
+                        *tmpa = CAOTAbsAddr {
+                            next: Some(aotc.abss),
+                            rip: aotc.rip,
+                            _type: AAT_SUB_U64,
+                            pad: vec![],
+                        };
+                    }
+                }
+                AOTStoreCodeU64(cc, num2.num.i);
+            }
+            if U8_avail
+                && num2.num.local_asm_undef_hash.is_none()
+                && num2.num.glbl_asm_undef_hash.is_none()
+                && !num2.imm_flag
+                && -124 <= num2.num.i
+                && num2.num.i <= 123
+            {
+                LexWarn(cc, "could use I8 displacement at ".to_owned());
+                return false;
             }
         }
     }
-    return false;
+    return true;
 }
 
 fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
@@ -423,5 +509,258 @@ fn hex_to_bytes(s: &str) -> Option<Vec<u8>> {
             .collect()
     } else {
         None
+    }
+}
+
+pub const asm_seg_prefixes: Vec<u8> = vec![0x26, 0x2E, 0x36, 0x3E, 0x64, 0x65];
+
+pub fn PrsAsmInst(cc: &mut CCmpCtrl, tmpo: &mut CHashOpcode, argcnt: i64) {
+    let mut aotc: &mut CAOTCtrl = cc.aotc;
+    let mut i: i64;
+    let mut j: i64;
+    let mut arg1: i64 = if argcnt > 0 {
+        AsmMakeArgMask(cc, &mut aotc.arg1)
+    } else {
+        1
+    };
+    let mut arg2: i64 = if argcnt > 1 {
+        AsmMakeArgMask(cc, &mut aotc.arg2)
+    } else {
+        1
+    };
+    let mut om: i64;
+    let mut seg: i64;
+    let mut arg1mask: i64;
+    let mut arg2mask: i64;
+    let mut tmpa1: &mut CAsmArg;
+    let mut tmpa2: &mut CAsmArg;
+    let mut ModrM_complete: bool;
+    let mut U8_avail: bool = false;
+    let mut found_second_possible: bool = false;
+    let mut tmpins: &mut CInst;
+    let mut cur: CAsmIns;
+    let mut best: CAsmIns = CAsmIns::default();
+
+    best.U8_cnt = 255;
+    for i in 0..tmpo.inst_entry_cnt {
+        tmpins = tmpo.ins.get_mut(1).unwrap();
+        if tmpins.arg1 == ARGT_REL8 || tmpins.arg2 == ARGT_REL8 {
+            U8_avail = true;
+        }
+        if Bt(&mut arg1mask, tmpins.arg1)
+            && Bt(&mut arg2mask, tmpins.arg2)
+            && (!tmpins.flags & IEF_NOT_IN_64_BIT > 0 || aotc.seg_size != 64)
+        {
+            cur.tmpins = Some(tmpins);
+            ModrM_complete = false;
+            cur.is_dft = ToBool(tmpins.flags & IEF_DFT);
+            if tmpins.flags & IEF_48_REX > 0 {
+                cur.REX = 0x48;
+            } else {
+                cur.REX = 0x40;
+            }
+            cur.disp.imm_flag = true;
+            cur.imm.imm_flag = true;
+            om = tmpins.opcode_modifier as i64;
+            arg1 = tmpins.arg1 as i64;
+            arg2 = tmpins.arg2 as i64;
+            tmpa1 = &mut aotc.arg1;
+            tmpa2 = &mut aotc.arg2;
+            cur.last_opcode_U8 = tmpins
+                .opcode
+                .get(tmpins.opcode_cnt as usize - 1)
+                .unwrap_or(&0)
+                .to_owned() as i64;
+            if tmpins.slash_val < 8 {
+                cur.ModrM |= (tmpins.slash_val << 3) as i64;
+                cur.has_ModrM = true;
+            }
+
+            if aotc.seg_size == 16 && tmpins.flags & IEF_OP_SIZE32 > 0
+                || aotc.seg_size != 16 && tmpins.flags & IEF_OP_SIZE16 > 0
+            {
+                cur.has_operand_prefix = true;
+            }
+
+            if om == OM_IB {
+                cur.imm.U8_cnt = 1;
+            } else if om == OM_IW {
+                cur.imm.U8_cnt = 2;
+            } else if om == OM_ID {
+                cur.imm.U8_cnt = 4;
+            }
+
+            if om == OM_CB {
+                cur.imm.U8_cnt = 1;
+                cur.imm.imm_flag = false;
+            } else if om == OM_CW {
+                cur.imm.U8_cnt = 2;
+                cur.imm.imm_flag = false;
+            } else if om == OM_CD {
+                cur.imm.U8_cnt = 4;
+                cur.imm.imm_flag = false;
+            }
+
+            if argcnt == 1 {
+                if best.U8_cnt != 255 && !found_second_possible && !best.is_dft {
+                    found_second_possible = true;
+                    if aotc.arg1.size {
+                        PrintWarn(
+                            "no size specified at %s, %04d\n",
+                            cc.lex_include_stk.full_name.to_owned(),
+                            cc.lex_include_stk.line_num - 1,
+                        );
+                    }
+                }
+                if tmpins.flags & IEF_PLUS_OPCODE > 0 {
+                    if tmpins.slash_val == SV_R_REG {
+                        cur.last_opcode_U8 |= tmpa1.reg1 & 7;
+                        if tmpa1.reg1 & 15 > 7 {
+                            cur.REX |= 1;
+                        }
+                        if tmpa1.reg1 >= 20 {
+                            //RBPu8,RSPu8,RSIu8,RDIu8?
+                            cur.has_REX = true;
+                        }
+                    } else {
+                        //SV_I_REG
+                        if tmpa1.reg1_type == REGT_FSTK as i64 {
+                            cur.last_opcode_U8 += tmpa1.reg1;
+                        }
+                    }
+                }
+                if arg1 == ARGT_R64 || arg1 == ARGT_RM64 || arg1 == ARGT_M64 {
+                    cur.REX |= 8;
+                }
+                if (ARGT_RM8 <= arg1 && arg1 <= ARGT_RM64) || (ARGT_M8 <= arg1 && arg1 <= ARGT_M64)
+                {
+                    if aorc.seg_size == 16 {
+                        cur.has_addr_prefix = true;
+                    }
+
+                    cur.has_ModrM = true;
+                    if tmpa1.imm_or_off_present && tmpa1.indirect && tmpa1.reg1 == REG_NONE {
+                        cur.ModrM += 5;
+                        cur.disp.num = tmpa1.num;
+                        cur.disp.U8_cnt = 4;
+                        if aotc.seg_size == 64 {
+                            cur.disp.imm_flag = false;
+                        }
+                    } else {
+                        if tmpa1.reg2 == REG_NONE && tmpa1.scale == 1 {
+                            cur.ModrM |= tmpa1.reg1 & 7;
+                            if tmpa1.reg1 & 15 > 7 {
+                                cur.REX |= 1;
+                            }
+                            if tmpa1.reg1 >= 20 {
+                                //RBPu8,RSPu8,RSIu8,RDIu8?
+                                cur.has_REX = true;
+                            }
+                        } else {
+                            cur.ModrM |= 4;
+                            cur.has_SIB = true;
+                            if tmpa1.scale == 1 {
+                                cur.SIB = 0;
+                            } else if tmpa1.scale == 2 {
+                                cur.SIB = 0x40;
+                            } else if tmpa1.scale == 4 {
+                                cur.SIB = 0x80;
+                            } else if tmpa1.scale == 8 {
+                                cur.SIB = 0xC0;
+                            }
+                            if tmpa1.reg2 == REG_NONE {
+                                ModrM_complete = true;
+                                cur.SIB |= (tmpa1.reg1 & 7) << 3 + REG_RBP;
+                                if tmpa1.reg1 & 15 > 7 {
+                                    cur.REX |= 2;
+                                }
+                                if tmpa1.reg1 >= 20 {
+                                    //RBPu8,RSPu8,RSIu8,RDIu8?
+                                    cur.has_REX = true;
+                                }
+                                cur.disp.num = tmpa1.num;
+                                cur.disp.U8_cnt = 4;
+                            } else {
+                                cur.SIB |= (tmpa1.reg1 & 7) << 3 + tmpa1.reg2 & 7;
+                                if tmpa1.reg1 & 15 > 7 {
+                                    cur.REX |= 2;
+                                }
+                                if tmpa1.reg1 >= 20 {
+                                    //RBPu8,RSPu8,RSIu8,RDIu8?
+                                    cur.has_REX = true;
+                                }
+                                if tmpa1.reg2 & 15 > 7 {
+                                    cur.REX |= 1;
+                                }
+                                if tmpa1.reg2 >= 20 {
+                                    //RBPu8,RSPu8,RSIu8,RDIu8?
+                                    cur.has_REX = true;
+                                }
+                                if tmpa1.reg2 & 7 == REG_RBP
+                                    && !tmpa1.imm_or_off_present
+                                    && tmpa1.indirect
+                                {
+                                    cur.ModrM |= 0x40;
+                                    cur.disp.U8_cnt = 1;
+                                    ModrM_complete = true;
+                                }
+                            }
+                        }
+                        if !ModrM_complete {
+                            if tmpa1.imm_or_off_present {
+                                cur.disp.num = tmpa1.num;
+                                if !cur.disp.num.machine_code.is_none()
+                                    && (i8::min_value() as i64 <= cur.disp.num.i
+                                        && cur.disp.num.i <= i8::max_value() as i64)
+                                {
+                                    cur.ModrM |= 0x40;
+                                    cur.disp.U8_cnt = 1;
+                                } else if aotc.seg_size == 16 {
+                                    cur.ModrM |= 0x80;
+                                    cur.disp.U8_cnt = 2;
+                                } else {
+                                    cur.ModrM |= 0x80;
+                                    cur.disp.U8_cnt = 4;
+                                }
+                            } else if !tmpa1.indirect {
+                                cur.has_addr_prefix = false;
+                                cur.ModrM |= 0xC0;
+                            } else {
+                                if tmpa1.reg1 & 7 == REG_RBP {
+                                    cur.ModrM |= 0x40;
+                                    cur.disp.U8_cnt = 1;
+                                }
+                            }
+                        }
+                    }
+                } else if (ARGT_REL8 <= arg1 && arg1 <= ARGT_REL32)
+                    || (ARGT_IMM8 <= arg1 && arg1 <= ARGT_IMM64)
+                    || (ARGT_UIMM8 <= arg1 && arg1 <= ARGT_UIMM64)
+                {
+                    if arg1 == ARGT_IMM64 || arg2 == ARGT_UIMM64 {
+                        cur.REX |= 8;
+                    }
+                    cur.imm.num = tmpa1.num;
+                }
+            } else if argcnt == 2 {
+                if best.U8_cnt != 255 && !found_second_possible && !best.is_dft {
+                    found_second_possible = true;
+                    if aotc.arg1.size > 0 && aotc.arg2.size == 0 {
+                        PrintWarn(
+                            "no size specified at %s, %04d\n".to_owned(),
+                            cc.lex_include_stk.full_name.to_owned(),
+                            cc.lex_include_stk.line_num - 1,
+                        );
+                    }
+                }
+                if tmpins.flags & IEF_PLUS_OPCODE > 0 {
+                    if tmpins.slash_val == SV_R_REG {
+                        if ARGT_AL <= arg1 && arg1 <= ARGT_RAX {
+                            cur.last_opcode_U8 |= tmpa2.reg1 & 7;
+                        }
+                    }
+                }
+            }
+        }
     }
 }
