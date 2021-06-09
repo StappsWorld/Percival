@@ -1,3 +1,6 @@
+#![allow(non_snake_case)]
+use std::str::FromStr;
+
 use super::expression::Expression;
 
 pub type Identifier = String;
@@ -7,7 +10,7 @@ pub enum Value {
     Integer(i64),
     Unsigned(u64),
     Float(f64),
-    String(LiteralString),
+    String(String),
 }
 
 #[derive(Debug)]
@@ -21,22 +24,21 @@ pub enum Type {
 #[derive(Debug)]
 pub enum Argument {
     Value(Value),
+    Identifier(Identifier),
+    Expression(Box<Expression>),
 }
-
-#[derive(Debug)]
-pub enum LiteralString {
-    Raw(String),
-    Format {
-        literal: String,
-        args: Vec<Argument>,
-    },
-}
-impl LiteralString {
-    pub fn format<S: ToString>(literal: S, args: Vec<Argument>) -> Self {
-        Self::Format {
-            literal: literal.to_string(),
-            args,
+impl Argument {
+    pub fn into_expression(self) -> Box<Expression> {
+        match self {
+            Self::Value(v) => Expression::Value(v).boxed(),
+            Self::Identifier(i) => Expression::Identifier(i).boxed(),
+            Self::Expression(e) => e,
         }
+    }
+}
+impl<S: ToString> From<S> for Argument {
+    fn from(s: S) -> Self {
+        Self::Value(Value::String(s.to_string()))
     }
 }
 
@@ -50,6 +52,14 @@ pub struct Assignment {
 pub struct FunctionCall {
     pub identifier: Identifier,
     pub args: Vec<Box<Expression>>,
+}
+impl FunctionCall {
+    pub fn Print(args: Vec<Box<Expression>>) -> Self {
+        Self {
+            identifier: "Print".into(),
+            args,
+        }
+    }
 }
 
 #[derive(Debug)]

@@ -39,14 +39,23 @@ pub Value: Value = {
 Identifier: Identifier = r"[_a-zA-Z][_a-zA-Z0-9]{0,30}" => <>.into();
 
 
-pub LiteralString: LiteralString = {
-    r#""(?:[^"\\]|\\.)*""# => LiteralString::Raw(<>.into()),
+pub LiteralString: String = {
+    r#""(?:[^"\\]|\\.)*""# => <>.into(),
+}
+FormatStringStatement: FunctionCall = {
     // TODO;
-    // <r#""(?:[^"\\]|\\.)*""#> "," <FormatArgs> => LiteralString::format(<>),
+    <lit:LiteralString> "," <a:FormatArgs> => {
+        let mut args = vec![Argument::from(lit).into_expression()];
+        a.into_iter().for_each(|arg| args.push(arg.into_expression()));
+
+        FunctionCall::Print(args)
+    }
 }
 
 Argument: Argument = {
     Value => Argument::Value(<>),
+    Identifier => Argument::Identifier(<>),
+    "(" <Expr> ")" => Argument::Expression(<>),
 };
 
 FormatArgs = Comma<Argument>;
@@ -140,22 +149,6 @@ P2Expr: Box<Expression> = {
     "!" <P2Expr> => 
         Expression::UnaryOperation(Operator::Not, <>).boxed(),
 
-    "++" <P2Expr> =>
-        Expression::prefixed_operation(
-            <>,
-            Operator::Add,
-            Expression::one(),
-        ).boxed(),
-
-    "--" <P2Expr> =>
-        Expression::prefixed_operation(
-            <>,
-            Operator::Sub,
-            Expression::one(),
-        ).boxed(),
-
-    
-
     Precedence<P2Op, P1Expr>,
 };
 P1Expr: Box<Expression> = {
@@ -175,10 +168,11 @@ P1Expr: Box<Expression> = {
 
         
     <P1Expr> "[" <Expr> "]" => Expression::Index(<>).boxed(),
-    Value => Box::new(Expression::Value(<>)),
-    LiteralString => Box::new(Expression::Value(Value::String(<>))),
-    Identifier => Box::new(Expression::Identifier(<>)),
-    FunctionCall => Box::new(Expression::FunctionCall(<>)),
+    
+    Value => Expression::Value(<>).boxed(),
+    
+    Identifier => Expression::Identifier(<>).boxed(),
+    FunctionCall => Expression::FunctionCall(<>).boxed(),
     "(" <Expr> ")",
 }
 
@@ -225,6 +219,18 @@ ElseStatement: ElseCondition = {
     }
 }
 
+StringStatement: Statement = {
+    <LiteralString> ";"=> 
+        Statement::Expression(
+            Expression::FunctionCall(
+                FunctionCall::Print(vec![
+                    Expression::string_literal(<>).boxed()
+                ])
+            ).boxed()
+        ),
+    
+    <FormatStringStatement> ";" => Statement::Expression(Expression::FunctionCall(<>).boxed()),
+}
 
 pub Statement: Statement = {
     <Expr> ";" => Statement::Expression(<>),
@@ -232,6 +238,7 @@ pub Statement: Statement = {
     "{" <Statements> "}" => Statement::Compound(<>),
     ForStatement,
     ReturnStatement,
+    StringStatement,
 }
 
 pub FunctionDeclaration: FunctionDeclaration = {

@@ -10,11 +10,6 @@ pub enum Expression {
         op: Operator,
         rhs: Box<Expression>,
     },
-    PrefixedOperation {
-        lhs: Box<Expression>,
-        op: Operator,
-        rhs: Box<Expression>,
-    },
     UnaryOperation(Operator, Box<Expression>),
     Value(Value),
     Identifier(Identifier),
@@ -25,9 +20,6 @@ impl Expression {
     pub fn operation(lhs: Box<Expression>, op: Operator, rhs: Box<Expression>) -> Self {
         Self::Operation { lhs, op, rhs }
     }
-    pub fn prefixed_operation(lhs: Box<Expression>, op: Operator, rhs: Box<Expression>) -> Self {
-        Self::PrefixedOperation { lhs, op, rhs }
-    }
 
     pub fn one() -> Box<Self> {
         Box::new(Self::Value(Value::Unsigned(1)))
@@ -35,5 +27,9 @@ impl Expression {
 
     pub fn boxed(self) -> Box<Self> {
         Box::new(self)
+    }
+
+    pub fn string_literal(s: String) -> Self {
+        Self::Value(Value::String(s))
     }
 }
