@@ -1,0 +1,224 @@
+
+use crate::parser::{ast::*, operators::*, expression::*};
+
+grammar;
+
+Type: Type = {
+    "U0" => Type::Void,
+    "I8" => Type::Signed(8),
+    "U8" => Type::Unsigned(8),
+    "I16" => Type::Signed(16),
+    "U16" => Type::Unsigned(16),
+    "I32" => Type::Signed(32),
+    "U32" => Type::Unsigned(32),
+    "I64" => Type::Signed(64),
+    "U64" => Type::Unsigned(64),
+    "F64" => Type::Float,
+};
+
+LiteralInteger: i64 = {
+    <sign:r"[+-]"> <num:r"\d+"> => {
+        let value = i64::from_str_radix(num, 10).unwrap();
+        if sign == "-" { -value }
+        else { value }
+    },
+}
+
+LiteralUnsignedInteger: u64 = {
+    <num:r"\d+"> => {
+        u64::from_str_radix(num, 10).unwrap() 
+    },
+}
+
+pub Value: Value = {
+    LiteralInteger => Value::Integer(<>),
+    LiteralUnsignedInteger => Value::Unsigned(<>),
+};
+
+
+Identifier: Identifier = r"[_a-zA-Z][_a-zA-Z0-9]{0,30}" => <>.into();
+
+
+pub LiteralString: LiteralString = {
+    r#""(?:[^"\\]|\\.)*""# => LiteralString::Raw(<>.into()),
+    <r#""(?:[^"\\]|\\.)*""#> "," <FormatArgs> => LiteralString::format(<>),
+}
+
+Argument: Argument = {
+    Value => Argument::Value(<>),
+};
+
+FormatArgs = Comma<Argument>;
+
+Comma<T>: Vec<T> = {
+    <mut this:(<T> ",")*> <next:T?> => {
+        if let Some(n) = next {
+            this.push(n);
+        }
+        this
+    }
+}
+
+FunctionCall: FunctionCall = {
+    <identifier:Identifier> "(" <args:Comma<Expr>> ")" => FunctionCall { identifier, args} ,
+}
+
+Precedence<Op,NextPrecedence>: Box<Expression> = {
+    Precedence<Op,NextPrecedence> Op NextPrecedence => Expression::operation(<>).boxed(),
+    NextPrecedence
+};
+
+P12Op: Operator = {
+    "=" => Operator::Assign,
+    "<<=" => Operator::AShl,
+    ">>=" => Operator::AShr,
+    "*=" => Operator::AMul,
+    "/=" => Operator::ADiv,
+    "&=" => Operator::ABAnd,
+    "|=" => Operator::ABOr,
+    "^=" => Operator::ABXor,
+    "+=" => Operator::AAdd,
+    "-=" => Operator::ASub,
+}
+P11Op: Operator = {
+    "||" => Operator::Or,
+}
+P10Op: Operator = {
+    "^^" => Operator::Xor,
+}
+P9Op: Operator = {
+    "&&" => Operator::And,
+}
+P8Op: Operator = {
+    "==" => Operator::Eq,
+    "!=" => Operator::Ne,
+}
+P7Op: Operator = {
+    "<" => Operator::Lt,
+    ">" => Operator::Gt,
+    "<=" => Operator::Le,
+    ">=" => Operator::Ge,
+}
+P6Op: Operator = {
+    "+" => Operator::Add,
+    "-" => Operator::Sub,
+}
+P5Op: Operator = {
+    "|" => Operator::BOr,
+}
+P4Op: Operator = {
+    "^" => Operator::BXor,
+}
+P3Op: Operator = {
+    "&" => Operator::BAnd,
+}
+P2Op: Operator = {
+    "*" => Operator::Mul,
+    "/" => Operator::Div,
+    "%" => Operator::Mod,
+}
+P1Op: Operator = {
+    "`" => Operator::Power,
+    ">>" => Operator::Shr,
+    "<<" => Operator::Shl,
+}
+
+
+
+P12Expr = Precedence<P12Op, P11Expr>;
+P11Expr = Precedence<P11Op, P10Expr>;
+P10Expr = Precedence<P10Op, P9Expr>;
+P9Expr = Precedence<P9Op, P8Expr>;
+P8Expr = Precedence<P8Op, P7Expr>;
+P7Expr = Precedence<P7Op, P6Expr>;
+P6Expr = Precedence<P6Op, P5Expr>;
+P5Expr = Precedence<P5Op, P4Expr>;
+P4Expr = Precedence<P4Op, P3Expr>;
+P3Expr = Precedence<P3Op, P2Expr>;
+P2Expr = Precedence<P2Op, P1Expr>;
+P1Expr: Box<Expression> = {
+    <P1Expr> "++" =>
+        Expression::operation(
+            <>,
+            Operator::Add,
+            Expression::one(),
+        ).boxed(),
+
+    <P1Expr> "--" =>
+        Expression::operation(
+            <>,
+            Operator::Sub,
+            Expression::one(),
+        ).boxed(),
+
+        
+    <P1Expr> "[" <Expr> "]" => Expression::Index(<>).boxed(),
+    Value => Box::new(Expression::Value(<>)),
+    Identifier => Box::new(Expression::Identifier(<>)),
+    FunctionCall => Box::new(Expression::FunctionCall(<>)),
+}
+
+pub Expr = P12Expr;
+
+Declaration: Statement = {
+    <ty:Type> <identifier:Identifier> "="? <value:Expr?> ";" => Statement::Declaration { ty, identifier, value }
+}
+
+Statements: Vec<Box<Statement>> = {
+    <mut this:Statements> <next:Statement> => {
+        this.push(Box::new(next));
+        this
+    },
+    Statement => vec![Box::new(<>)]
+}
+
+ForStatement: Statement = {
+    "for" "(" <assignment:Expr?> ";" <condition:Expr?> ";" <each:Expr?> ")" <body:Statement> => Statement::Loop { assignment, condition, each, body: Box::new(body) },
+}
+
+ReturnStatement: Statement = {
+    "return" <Expr> ";" => Statement::Return(<>)
+}
+
+// TODO:
+// ConditionStatement: Statement = {
+//     "if" "(" <condition:Expr> ")" <body:Statement> <else_statement:ElseStatement?> => {
+//         Statement::Condition(
+//             Box::new(Condition { condition, body, else_statement }),
+//         )
+//     },
+// }
+
+// ElseStatement: ElseCondition = {
+//     "else" <condition:("if" "(" <Expr> ")")?> <body:Statement> <else_statement:("else" <ElseStatement>)?> => {
+//         ElseCondition {
+//             condition, body, else_statement: else_statement.map(Box::new),
+//         }
+//     }
+// }
+
+
+pub Statement: Statement = {
+    <Expr> ";" => Statement::Expression(<>),
+    Declaration,
+    "{" <Statements> "}" => Statement::Compound(<>),
+    ForStatement,
+    ReturnStatement,
+    // TODO:
+    // ConditionStatement,
+}
+
+pub FunctionDeclaration: FunctionDeclaration = {
+    <return_type:Type> <identifier:Identifier> "(" <args:FunctionDeclarationArguments> ")" "{" <body:Statements> "}" =>     
+    FunctionDeclaration { return_type, identifier, args, body, }
+}
+
+FunctionDeclarationArgument: FunctionArgument = {
+    <ty:Type> <identifier:Identifier> "="? <default_value:Value?> ";" => FunctionArgument { ty, identifier, default_value }
+}
+
+FunctionDeclarationArguments: FunctionArguments = {
+    Comma<FunctionDeclarationArgument> => FunctionArguments::Args(<>),
+    "..." => FunctionArguments::Varargs,
+};
+
