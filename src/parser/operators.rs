@@ -30,4 +30,5 @@ pub enum Operator {
     ABXor,
     AAdd,
     ASub,
+    Not,
 }

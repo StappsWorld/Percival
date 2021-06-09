@@ -41,7 +41,8 @@ Identifier: Identifier = r"[_a-zA-Z][_a-zA-Z0-9]{0,30}" => <>.into();
 
 pub LiteralString: LiteralString = {
     r#""(?:[^"\\]|\\.)*""# => LiteralString::Raw(<>.into()),
-    <r#""(?:[^"\\]|\\.)*""#> "," <FormatArgs> => LiteralString::format(<>),
+    // TODO;
+    // <r#""(?:[^"\\]|\\.)*""#> "," <FormatArgs> => LiteralString::format(<>),
 }
 
 Argument: Argument = {
@@ -135,7 +136,28 @@ P6Expr = Precedence<P6Op, P5Expr>;
 P5Expr = Precedence<P5Op, P4Expr>;
 P4Expr = Precedence<P4Op, P3Expr>;
 P3Expr = Precedence<P3Op, P2Expr>;
-P2Expr = Precedence<P2Op, P1Expr>;
+P2Expr: Box<Expression> = {
+    "!" <P2Expr> => 
+        Expression::UnaryOperation(Operator::Not, <>).boxed(),
+
+    "++" <P2Expr> =>
+        Expression::prefixed_operation(
+            <>,
+            Operator::Add,
+            Expression::one(),
+        ).boxed(),
+
+    "--" <P2Expr> =>
+        Expression::prefixed_operation(
+            <>,
+            Operator::Sub,
+            Expression::one(),
+        ).boxed(),
+
+    
+
+    Precedence<P2Op, P1Expr>,
+};
 P1Expr: Box<Expression> = {
     <P1Expr> "++" =>
         Expression::operation(
@@ -154,8 +176,10 @@ P1Expr: Box<Expression> = {
         
     <P1Expr> "[" <Expr> "]" => Expression::Index(<>).boxed(),
     Value => Box::new(Expression::Value(<>)),
+    LiteralString => Box::new(Expression::Value(Value::String(<>))),
     Identifier => Box::new(Expression::Identifier(<>)),
     FunctionCall => Box::new(Expression::FunctionCall(<>)),
+    "(" <Expr> ")",
 }
 
 pub Expr = P12Expr;
@@ -169,7 +193,12 @@ Statements: Vec<Box<Statement>> = {
         this.push(Box::new(next));
         this
     },
-    Statement => vec![Box::new(<>)]
+    <mut this:Statements> <next:ConditionStatement> => {
+        this.push(Box::new(next));
+        this
+    },
+    ConditionStatement => vec![Box::new(<>)],
+    Statement => vec![Box::new(<>)],
 }
 
 ForStatement: Statement = {
@@ -180,22 +209,21 @@ ReturnStatement: Statement = {
     "return" <Expr> ";" => Statement::Return(<>)
 }
 
-// TODO:
-// ConditionStatement: Statement = {
-//     "if" "(" <condition:Expr> ")" <body:Statement> <else_statement:ElseStatement?> => {
-//         Statement::Condition(
-//             Box::new(Condition { condition, body, else_statement }),
-//         )
-//     },
-// }
+ConditionStatement: Statement = {
+    "if" "(" <condition:Expr> ")" <body:Statement> <else_statement:ElseStatement?> => {
+        Statement::Condition(
+            Box::new(Condition { condition, body, else_statement }),
+        )
+    },
+}
 
-// ElseStatement: ElseCondition = {
-//     "else" <condition:("if" "(" <Expr> ")")?> <body:Statement> <else_statement:("else" <ElseStatement>)?> => {
-//         ElseCondition {
-//             condition, body, else_statement: else_statement.map(Box::new),
-//         }
-//     }
-// }
+ElseStatement: ElseCondition = {
+    "else" <condition:("if" "(" <Expr> ")")?> <body:Statement> <else_statement:ElseStatement?> => {
+        ElseCondition {
+            condition, body, else_statement: else_statement.map(Box::new),
+        }
+    }
+}
 
 
 pub Statement: Statement = {
@@ -204,8 +232,6 @@ pub Statement: Statement = {
     "{" <Statements> "}" => Statement::Compound(<>),
     ForStatement,
     ReturnStatement,
-    // TODO:
-    // ConditionStatement,
 }
 
 pub FunctionDeclaration: FunctionDeclaration = {

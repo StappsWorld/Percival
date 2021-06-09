@@ -3,8 +3,8 @@ pub mod parser;
 fn main() {
     let s = r#"
     U0 Main() {
-        U8 i;
-        for (i = 1; i <= 100; i++) {
+        U8 i = 1;
+        for (; i <= 100; i++) {
         if (!(i % 15))
             Print("FizzBuzz");
         else if (!(i % 3))
