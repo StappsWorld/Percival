@@ -1,36 +1,61 @@
 pub mod parser;
+use std::{
+    fs,
+    io::{self, Read, Write},
+    path::PathBuf,
+};
 
-fn main() {
-    let s = r#"
-U8 *JukeReward(U8 *msg)
-{
-  U8 *buf;
-  U8 *doc;
-  U8 *res=Spawn(&SrvCmdLine,NULL,"Reward",,Fs);
-  StrCpy(res->task_title,"Reward");
-  res->title_src=TTS_LOCKED_CONST;
+fn get_examples() -> io::Result<Vec<PathBuf>> {
+    let available_examples = fs::read_dir("./examples")?
+        .map(|entry| entry.unwrap().path())
+        .collect::<Vec<PathBuf>>();
 
-  doc=DocNew(,res);
-  DocPrint(doc,"$$WW+H,1$$$$RED$$%s",msg);
-
-  buf=MStrPrint("DocEd(0x%X);",doc);
-  TaskExe(res,NULL,buf,1<<JOBf_EXIT_ON_COMPLETE|1<<JOBf_FREE_ON_COMPLETE);
-  Free(buf);
-  TaskWait(res);
-
-  res->border_src =BDS_CONST;
-  res->border_attr=LTGRAY<<4+DrvTextAttrGet(':')&15;
-  res->text_attr  =LTGRAY<<4+BLUE;
-  res->win_inhibit=WIG_NO_FOCUS_TASK_DFT;
-  WinHorz(Fs->win_right+2,TEXT_COLS-2,res);
-  WinVert(2,TEXT_ROWS-2,res);
-
-  WinFocus(Fs->parent_task);
-  return res;
+    Ok(available_examples)
 }
-"#;
-    println!(
-        "{:#?}",
-        parser::Parser::new().parse(s)
-    );
+
+fn get_index(available_examples: &Vec<PathBuf>) -> io::Result<usize> {
+    let mut index = usize::MAX;
+
+    while index >= available_examples.len() {
+        print!(
+            "Which would you like to run (a number 0 - {}): ",
+            available_examples.len() - 1
+        );
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        index = usize::from_str_radix(&input.trim(), 10).unwrap();
+
+        if index >= available_examples.len() {
+            println!("{} is out of range, try again.", index);
+        }
+    }
+
+    Ok(index)
+}
+
+fn main() -> io::Result<()> {
+    let available_examples = get_examples()?;
+
+    println!("Available Examples: ");
+
+    available_examples
+        .iter()
+        .enumerate()
+        .for_each(|(idx, path)| println!("\t{}: {:?}", idx, path.file_name().unwrap()));
+
+    let index = get_index(&available_examples)?;
+
+    let example_path = available_examples.get(index).unwrap();
+    println!("You selected:\n\t{}: {:?}", index, example_path);
+
+    let mut file_contents = String::new();
+
+    let nbytes = fs::File::open(example_path)?.read_to_string(&mut file_contents)?;
+    println!("Read {} bytes from {:?}", nbytes, example_path);
+
+    println!("Parsing...");
+    println!("Result: {:#?}", parser::Parser::new().parse(&file_contents));
+    Ok(())
 }
