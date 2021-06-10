@@ -15,6 +15,7 @@ pub enum Expression {
     Identifier(Identifier),
     FunctionCall(FunctionCall),
     Index(Box<Expression>, Box<Expression>),
+    MemberAccess(Box<Expression>, Identifier),
 }
 impl Expression {
     pub fn operation(lhs: Box<Expression>, op: Operator, rhs: Box<Expression>) -> Self {

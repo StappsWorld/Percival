@@ -31,4 +31,6 @@ pub enum Operator {
     AAdd,
     ASub,
     Not,
+    Ref,
+    Deref,
 }

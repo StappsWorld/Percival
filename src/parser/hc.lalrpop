@@ -3,7 +3,7 @@ use crate::parser::{ast::*, operators::*, expression::*};
 
 grammar;
 
-Type: Type = {
+BuiltinType: Type = {
     "U0" => Type::Void,
     "I8" => Type::Signed(8),
     "U8" => Type::Unsigned(8),
@@ -14,34 +14,47 @@ Type: Type = {
     "I64" => Type::Signed(64),
     "U64" => Type::Unsigned(64),
     "F64" => Type::Float,
+}
+
+Type: Type = {
+    <Type> "*" => Type::Pointer(Box::new(<>)),
+    BuiltinType
 };
 
-LiteralInteger: i64 = {
-    <sign:r"[+-]"> <num:r"\d+"> => {
-        let value = i64::from_str_radix(num, 10).unwrap();
+
+LiteralSignedInteger: i64 = {
+    <sign:"-"> <num:LiteralInteger> => {
+        let value = num as i64;
         if sign == "-" { -value }
         else { value }
     },
 }
 
-LiteralUnsignedInteger: u64 = {
-    <num:r"\d+"> => {
-        u64::from_str_radix(num, 10).unwrap() 
+LiteralInteger: u64 = {
+    <r"\d+"> => {
+        u64::from_str_radix(<>, 10).unwrap() 
     },
+    <r"0x[0-9a-fA-F]+"> => {
+        u64::from_str_radix(<>.split("0x").nth(1).unwrap(), 16).unwrap() 
+    },
+    <r"0b[01]+"> => {
+        u64::from_str_radix(<>.split("0b").nth(1).unwrap(), 2).unwrap() 
+    }
 }
 
-pub Value: Value = {
-    LiteralInteger => Value::Integer(<>),
-    LiteralUnsignedInteger => Value::Unsigned(<>),
+Value: Value = {
+    LiteralInteger => Value::Unsigned(<>),
+    LiteralSignedInteger => Value::Integer(<>),
+    LiteralChars => Value::Chars(<>),
 };
-
 
 Identifier: Identifier = r"[_a-zA-Z][_a-zA-Z0-9]{0,30}" => <>.into();
 
+LiteralString: String = r#""(?:[^"\\]|\\.)*""# => <>.trim_matches('"').into();
+LiteralChars: Vec<u8> = r#"'(?:[^"\\]|\\.)*'"# => <>.trim_matches('\'').as_bytes().to_vec();
 
-pub LiteralString: String = {
-    r#""(?:[^"\\]|\\.)*""# => <>.into(),
-}
+
+
 FormatStringStatement: FunctionCall = {
     // TODO;
     <lit:LiteralString> "," <a:FormatArgs> => {
@@ -69,8 +82,20 @@ Comma<T>: Vec<T> = {
     }
 }
 
+OptionalComma<T>: Vec<Option<T>> = {
+    <mut this:(<T?> ",")*> <next:T?> => {
+        this.push(next);
+        this
+    }
+}
+
+FunctionCallArgument: Box<Expression> = {
+    Expr => <>,
+    LiteralString => Expression::string_literal(<>).boxed(),
+}
+
 FunctionCall: FunctionCall = {
-    <identifier:Identifier> "(" <args:Comma<Expr>> ")" => FunctionCall { identifier, args} ,
+    <identifier:Identifier> "(" <args:OptionalComma<FunctionCallArgument>> ")" => FunctionCall { identifier, args} ,
 }
 
 Precedence<Op,NextPrecedence>: Box<Expression> = {
@@ -127,13 +152,20 @@ P2Op: Operator = {
     "/" => Operator::Div,
     "%" => Operator::Mod,
 }
+P2PreOp: Operator = {
+    "!" => Operator::Not,
+    "*" => Operator::Deref,
+    "&" => Operator::Ref,
+}
 P1Op: Operator = {
     "`" => Operator::Power,
     ">>" => Operator::Shr,
     "<<" => Operator::Shl,
 }
-
-
+P1PostUnaryOp: Operator = {
+    "++" => Operator::AAdd,
+    "--" => Operator::ASub,
+}
 
 P12Expr = Precedence<P12Op, P11Expr>;
 P11Expr = Precedence<P11Op, P10Expr>;
@@ -146,40 +178,39 @@ P5Expr = Precedence<P5Op, P4Expr>;
 P4Expr = Precedence<P4Op, P3Expr>;
 P3Expr = Precedence<P3Op, P2Expr>;
 P2Expr: Box<Expression> = {
-    "!" <P2Expr> => 
-        Expression::UnaryOperation(Operator::Not, <>).boxed(),
+     P2PreOp P2Expr => 
+        Expression::UnaryOperation(<>).boxed(),
 
     Precedence<P2Op, P1Expr>,
 };
 P1Expr: Box<Expression> = {
-    <P1Expr> "++" =>
+    P1Expr P1PostUnaryOp =>
         Expression::operation(
             <>,
-            Operator::Add,
-            Expression::one(),
-        ).boxed(),
-
-    <P1Expr> "--" =>
-        Expression::operation(
-            <>,
-            Operator::Sub,
             Expression::one(),
         ).boxed(),
 
         
     <P1Expr> "[" <Expr> "]" => Expression::Index(<>).boxed(),
-    
+    <P1Expr> "->" <Identifier> => Expression::MemberAccess(<>).boxed(),
+
+    P1Expr P1Op P0Expr => Expression::operation(<>).boxed(),
+
+    P0Expr
+}
+
+P0Expr: Box<Expression> = {
     Value => Expression::Value(<>).boxed(),
-    
     Identifier => Expression::Identifier(<>).boxed(),
     FunctionCall => Expression::FunctionCall(<>).boxed(),
     "(" <Expr> ")",
 }
 
-pub Expr = P12Expr;
+Expr = P12Expr;
 
 Declaration: Statement = {
-    <ty:Type> <identifier:Identifier> "="? <value:Expr?> ";" => Statement::Declaration { ty, identifier, value }
+    <ty:Type> <identifier:Identifier> "="? <value:Expr?> ";" => 
+        Statement::Declaration { ty, identifier, value }
 }
 
 Statements: Vec<Box<Statement>> = {
@@ -232,22 +263,23 @@ StringStatement: Statement = {
     <FormatStringStatement> ";" => Statement::Expression(Expression::FunctionCall(<>).boxed()),
 }
 
-pub Statement: Statement = {
+Statement: Statement = {
     <Expr> ";" => Statement::Expression(<>),
     Declaration,
     "{" <Statements> "}" => Statement::Compound(<>),
     ForStatement,
     ReturnStatement,
     StringStatement,
+    FunctionDeclaration => Statement::FunctionDeclaration(<>),
 }
 
-pub FunctionDeclaration: FunctionDeclaration = {
+FunctionDeclaration: FunctionDeclaration = {
     <return_type:Type> <identifier:Identifier> "(" <args:FunctionDeclarationArguments> ")" "{" <body:Statements> "}" =>     
     FunctionDeclaration { return_type, identifier, args, body, }
 }
 
 FunctionDeclarationArgument: FunctionArgument = {
-    <ty:Type> <identifier:Identifier> "="? <default_value:Value?> ";" => FunctionArgument { ty, identifier, default_value }
+    <ty:Type> <identifier:Identifier> "="? <default_value:Value?> => FunctionArgument { ty, identifier, default_value }
 }
 
 FunctionDeclarationArguments: FunctionArguments = {
@@ -255,3 +287,5 @@ FunctionDeclarationArguments: FunctionArguments = {
     "..." => FunctionArguments::Varargs,
 };
 
+
+pub File = Statements;

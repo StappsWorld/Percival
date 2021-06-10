@@ -1,5 +1,4 @@
 #![allow(non_snake_case)]
-use std::str::FromStr;
 
 use super::expression::Expression;
 
@@ -11,6 +10,7 @@ pub enum Value {
     Unsigned(u64),
     Float(f64),
     String(String),
+    Chars(Vec<u8>),
 }
 
 #[derive(Debug)]
@@ -19,6 +19,8 @@ pub enum Type {
     Signed(usize),
     Unsigned(usize),
     Float,
+    Pointer(Box<Type>),
+    Identifier(Identifier),
 }
 
 #[derive(Debug)]
@@ -51,13 +53,13 @@ pub struct Assignment {
 #[derive(Debug)]
 pub struct FunctionCall {
     pub identifier: Identifier,
-    pub args: Vec<Box<Expression>>,
+    pub args: Vec<Option<Box<Expression>>>,
 }
 impl FunctionCall {
     pub fn Print(args: Vec<Box<Expression>>) -> Self {
         Self {
             identifier: "Print".into(),
-            args,
+            args: args.into_iter().map(|a| Some(a)).collect(),
         }
     }
 }
@@ -79,6 +81,7 @@ pub enum Statement {
     },
     Return(Box<Expression>),
     Condition(Box<Condition>),
+    FunctionDeclaration(FunctionDeclaration),
 }
 
 #[derive(Debug)]
