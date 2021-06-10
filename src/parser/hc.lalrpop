@@ -1,9 +1,14 @@
 
 use crate::parser::{ast::*, operators::*, expression::*};
 
+#[LALR]
 grammar;
 
-BuiltinType: Type = {
+Comment: String = {
+    r"/\*(.|\n)*\*/" => <>.into(),
+}
+
+Type: Type = {
     "U0" => Type::Void,
     "I8" => Type::Signed(8),
     "U8" => Type::Unsigned(8),
@@ -14,13 +19,10 @@ BuiltinType: Type = {
     "I64" => Type::Signed(64),
     "U64" => Type::Unsigned(64),
     "F64" => Type::Float,
+    // TODO: Fix ambiguity with a * b and T *b, if possible 🥺
+    <Type> "*" => <>.pointer(),
+    Identifier => Type::Identifier(<>),
 }
-
-Type: Type = {
-    <Type> "*" => Type::Pointer(Box::new(<>)),
-    BuiltinType
-};
-
 
 LiteralSignedInteger: i64 = {
     <sign:"-"> <num:LiteralInteger> => {
@@ -48,6 +50,11 @@ Value: Value = {
     LiteralChars => Value::Chars(<>),
 };
 
+ValueOrString: Value = {
+    Value,
+    LiteralString => Value::String(<>),
+}
+
 Identifier: Identifier = r"[_a-zA-Z][_a-zA-Z0-9]{0,30}" => <>.into();
 
 LiteralString: String = r#""(?:[^"\\]|\\.)*""# => <>.trim_matches('"').into();
@@ -60,7 +67,6 @@ FormatStringStatement: FunctionCall = {
     <lit:LiteralString> "," <a:FormatArgs> => {
         let mut args = vec![Argument::from(lit).into_expression()];
         a.into_iter().for_each(|arg| args.push(arg.into_expression()));
-
         FunctionCall::Print(args)
     }
 }
@@ -71,10 +77,10 @@ Argument: Argument = {
     "(" <Expr> ")" => Argument::Expression(<>),
 };
 
-FormatArgs = Comma<Argument>;
+FormatArgs = Sep<Argument, ",">;
 
-Comma<T>: Vec<T> = {
-    <mut this:(<T> ",")*> <next:T?> => {
+Sep<T, S>: Vec<T> = {
+    <mut this:(<T> S)*> <next:T?> => {
         if let Some(n) = next {
             this.push(n);
         }
@@ -82,8 +88,16 @@ Comma<T>: Vec<T> = {
     }
 }
 
-OptionalComma<T>: Vec<Option<T>> = {
-    <mut this:(<T?> ",")*> <next:T?> => {
+
+SepAtLeastOne<T, S>: Vec<T> = {
+    <mut this:(<T> S)*> <next:T> => {
+        this.push(next);
+        this
+    }
+}
+
+OptionalSep<T, S>: Vec<Option<T>> = {
+    <mut this:(<T?> S)*> <next:T?> => {
         this.push(next);
         this
     }
@@ -95,7 +109,7 @@ FunctionCallArgument: Box<Expression> = {
 }
 
 FunctionCall: FunctionCall = {
-    <identifier:Identifier> "(" <args:OptionalComma<FunctionCallArgument>> ")" => FunctionCall { identifier, args} ,
+    <identifier:Identifier> "(" <args:OptionalSep<FunctionCallArgument, ",">> ")" => FunctionCall { identifier, args} ,
 }
 
 Precedence<Op,NextPrecedence>: Box<Expression> = {
@@ -148,7 +162,7 @@ P3Op: Operator = {
     "&" => Operator::BAnd,
 }
 P2Op: Operator = {
-    "*" => Operator::Mul,
+    // "*" => Operator::Mul,
     "/" => Operator::Div,
     "%" => Operator::Mod,
 }
@@ -208,9 +222,10 @@ P0Expr: Box<Expression> = {
 
 Expr = P12Expr;
 
+
 Declaration: Statement = {
-    <ty:Type> <identifier:Identifier> "="? <value:Expr?> ";" => 
-        Statement::Declaration { ty, identifier, value }
+    <ty:Type> <identifiers:SepAtLeastOne<Identifier, ",">> ";" => 
+        Statement::Declaration { ty, identifiers }
 }
 
 Statements: Vec<Box<Statement>> = {
@@ -271,11 +286,36 @@ Statement: Statement = {
     ReturnStatement,
     StringStatement,
     FunctionDeclaration => Statement::FunctionDeclaration(<>),
+    Comment => Statement::Comment(<>),
+    Directive => Statement::Directive(<>),
+    Definition => Statement::Definition(<>),
+}
+
+Directive: Directive = {
+    "#define" <arg1:Identifier> <arg2:ValueOrString> => Directive::Define(<>),
+}
+
+
+// class TimeEntry
+// {
+//   TimeEntry *next,*last;
+//   U8 type;
+//   CDate datetime;
+//   U8 *desc;
+// };
+Definition: Definition = {
+    "class" <Identifier> "{" <DefinitionBody> "}" ";"=> Definition::new(<>),
+}
+
+DefinitionBody: Vec<Field> = Sep<Field, ";">;
+
+Field: Field = {
+    Type Identifier => Field::new(<>)
 }
 
 FunctionDeclaration: FunctionDeclaration = {
     <return_type:Type> <identifier:Identifier> "(" <args:FunctionDeclarationArguments> ")" "{" <body:Statements> "}" =>     
-    FunctionDeclaration { return_type, identifier, args, body, }
+        FunctionDeclaration { return_type, identifier, args, body, }
 }
 
 FunctionDeclarationArgument: FunctionArgument = {
@@ -283,7 +323,7 @@ FunctionDeclarationArgument: FunctionArgument = {
 }
 
 FunctionDeclarationArguments: FunctionArguments = {
-    Comma<FunctionDeclarationArgument> => FunctionArguments::Args(<>),
+    Sep<FunctionDeclarationArgument, ","> => FunctionArguments::Args(<>),
     "..." => FunctionArguments::Varargs,
 };
 

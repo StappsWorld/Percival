@@ -2,7 +2,21 @@
 
 use super::expression::Expression;
 
-pub type Identifier = String;
+#[derive(Debug)]
+pub enum Identifier {
+    String(String),
+    Pointer(Box<Identifier>),
+}
+impl Identifier {
+    pub fn pointer(self) -> Self {
+        Self::Pointer(Box::new(self))
+    }
+}
+impl From<&str> for Identifier {
+    fn from(s: &str) -> Self {
+        Self::String(s.into())
+    }
+}
 
 #[derive(Debug)]
 pub enum Value {
@@ -21,6 +35,16 @@ pub enum Type {
     Float,
     Pointer(Box<Type>),
     Identifier(Identifier),
+}
+impl Type {
+    pub fn pointer(self) -> Self {
+        Self::Pointer(Box::new(self))
+    }
+}
+
+#[derive(Debug)]
+pub enum Directive {
+    Define(Identifier, Value),
 }
 
 #[derive(Debug)]
@@ -69,8 +93,7 @@ pub enum Statement {
     Expression(Box<Expression>),
     Declaration {
         ty: Type,
-        identifier: Identifier,
-        value: Option<Box<Expression>>,
+        identifiers: Vec<Identifier>,
     },
     Compound(Vec<Box<Statement>>),
     Loop {
@@ -82,6 +105,9 @@ pub enum Statement {
     Return(Box<Expression>),
     Condition(Box<Condition>),
     FunctionDeclaration(FunctionDeclaration),
+    Comment(String),
+    Directive(Directive),
+    Definition(Definition),
 }
 
 #[derive(Debug)]
@@ -116,4 +142,26 @@ pub struct ElseCondition {
     pub condition: Option<Box<Expression>>,
     pub body: Statement,
     pub else_statement: Option<Box<ElseCondition>>,
+}
+
+#[derive(Debug)]
+pub struct Definition {
+    pub ident: Identifier,
+    pub fields: Vec<Field>,
+}
+impl Definition {
+    pub fn new(ident: Identifier, fields: Vec<Field>) -> Self {
+        Self { ident, fields }
+    }
+}
+
+#[derive(Debug)]
+pub struct Field {
+    pub ty: Type,
+    pub identifier: Identifier,
+}
+impl Field {
+    pub fn new(ty: Type, identifier: Identifier) -> Self {
+        Self { ty, identifier }
+    }
 }
