@@ -1,6 +1,6 @@
 # Percival : The HolyC Compiler
 
-A direct port of the HolyC Compiler to Rust direct from Terry Davis.
+A HolyC Compiler written in Rust.
 
 ## Disclaimer
 Although it was all fun and games to make fun of Terry Davis when he was alive, I personally believe that the internet had the chance to save a man and instead opted to make fun of, belittle, and fuel this mentally ill man until he took his own life. As such, I only wish this project to extend the great work Terry did with his language to an operating system other than TempleOS and leave out any jokes at the poor man's expense.
