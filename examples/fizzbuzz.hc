@@ -5,8 +5,9 @@ class TimeEntry
   CDate datetime;
   U8 *desc;
 };
+
 /* For each number that divides evenly with 3, print "Fizz", 5, print "Buzz", 15, print "FizzBuzz", otherwise print the number. */
-U0 Main () {
+CTask *Main () {
   U8 *j,k;
   U8 i;
   for (i = 1; i <= 100; i++) {
@@ -20,4 +21,6 @@ U0 Main () {
       Print("%d", i);
     Print("\n");
   }
+  
+  TimeEntry *tmpt=header->next,*tmpt1;
 }

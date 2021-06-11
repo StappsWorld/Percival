@@ -25,6 +25,11 @@ Type: Type = {
     Identifier => Type::Identifier(<>),
 }
 
+TypeOrPointer: Type = {
+    Type,
+    <Type> "*" => <>.pointer(),
+}
+
 LiteralSignedInteger: i64 = {
     <sign:"-"> <num:LiteralInteger> => {
         let value = num as i64;
@@ -49,6 +54,9 @@ Value: Value = {
     LiteralInteger => Value::Unsigned(<>),
     LiteralSignedInteger => Value::Integer(<>),
     LiteralChars => Value::Chars(<>),
+    "NULL" => Value::Null,
+    "TRUE" => Value::Unsigned(1),
+    "FALSE" => Value::Unsigned(0),
 };
 
 ValueOrString: Value = {
@@ -67,18 +75,12 @@ FormatStringStatement: FunctionCall = {
     // TODO;
     <lit:LiteralString> "," <a:FormatArgs> => {
         let mut args = vec![Argument::from(lit).into_expression()];
-        a.into_iter().for_each(|arg| args.push(arg.into_expression()));
+        args.extend(a);
         FunctionCall::Print(args)
     }
 }
 
-Argument: Argument = {
-    Value => Argument::Value(<>),
-    Identifier => Argument::Identifier(<>),
-    "(" <Expr> ")" => Argument::Expression(<>),
-};
-
-FormatArgs = Sep<Argument, ",">;
+FormatArgs = Sep<Expr, ",">;
 
 Sep<T, S>: Vec<T> = {
     <mut this:(<T> S)*> <next:T?> => {
@@ -107,10 +109,27 @@ OptionalSep<T, S>: Vec<Option<T>> = {
 FunctionCallArgument: Box<Expression> = {
     Expr => <>,
     LiteralString => Expression::string_literal(<>).boxed(),
+    <Type> "*" => Expression::Type(<>.pointer()).boxed(),
 }
 
 FunctionCall: FunctionCall = {
-    <identifier:Identifier> "(" <args:OptionalSep<FunctionCallArgument, ",">> ")" => FunctionCall { identifier, args} ,
+    <identifier:Identifier> "(" <args:OptionalSep<FunctionCallArgument, ",">> ")" => 
+        FunctionCall { identifier, args},
+
+    "sizeof" "(" <ty:Type> <star:"*"?> ")" => 
+        FunctionCall {
+            identifier: "sizeof".into(),
+            args: vec![
+                Some(
+                    Expression::Type(
+                        if star.is_some() { ty.pointer() }
+                        else { ty }
+                    ).boxed()
+                )
+            ]
+        }
+    
+
 }
 
 Precedence<Op,NextPrecedence>: Box<Expression> = {
@@ -163,7 +182,7 @@ P3Op: Operator = {
     "&" => Operator::BAnd,
 }
 P2Op: Operator = {
-    "*" => Operator::Mul,
+    // "*" => Operator::Mul,
     "/" => Operator::Div,
     "%" => Operator::Mod,
 }
@@ -207,7 +226,8 @@ P1Expr: Box<Expression> = {
 
         
     <P1Expr> "[" <Expr> "]" => Expression::Index(<>).boxed(),
-    <P1Expr> "->" <Identifier> => Expression::MemberAccess(<>).boxed(),
+    <P1Expr> "->" <Identifier> => Expression::IndirectMemberAccess(<>).boxed(),
+    <P1Expr> "." <Identifier> => Expression::MemberAccess(<>).boxed(),
 
     P1Expr P1Op P0Expr => Expression::operation(<>).boxed(),
 
@@ -223,6 +243,12 @@ P0Expr: Box<Expression> = {
 
 Expr = P12Expr;
 
+Repeat<T>: Vec<T> = {
+    <mut this:T*> <next:T> => {
+        this.push(next);
+        this
+    }
+}
 
 Statements: Vec<Box<Statement>> = {
     <mut this:Statements> <next:Statement> => {
@@ -238,11 +264,20 @@ Statements: Vec<Box<Statement>> = {
 }
 
 ForStatement: Statement = {
-    "for" "(" <assignment:Expr?> ";" <condition:Expr?> ";" <each:Expr?> ")" <body:Statement> => Statement::Loop { assignment, condition, each, body: Box::new(body) },
+    "for" "(" <assignment:Expr?> ";" <condition:Expr?> ";" <each:Expr?> ")" <body:Statement> => Statement::For { assignment, condition, each, body: Box::new(body) },
 }
+
+WhileStatement: Statement = {
+    "while" "(" <condition:Expr?> ")" <body:Statement> => Statement::While { condition, body: Box::new(body) },
+};
 
 ReturnStatement: Statement = {
     "return" <Expr> ";" => Statement::Return(<>)
+}
+
+Extern: Extern = {
+    "extern" <Identifier> => Extern::Identifier(<>),
+    "extern" "class" <Identifier> => Extern::Class(<>),
 }
 
 ConditionStatement: Statement = {
@@ -274,54 +309,80 @@ StringStatement: Statement = {
     <FormatStringStatement> ";" => Statement::Expression(Expression::FunctionCall(<>).boxed()),
 }
 
-// CharsStatement: Statement = {
-//     <LiteralChars> ";" => 
-//         Statement::Expression(
-//             Expression::FunctionCall(
-//                 FunctionCall::PutChars(vec![
-//                     Expression::
-//                 ])
-//             )
-//         )
-// }
+CharsStatement: Statement = {
+    <LiteralChars> ";" => 
+        Statement::Expression(
+            Expression::FunctionCall(
+                FunctionCall::PutChars(
+                    Expression::chars_literal(<>).boxed()
+                )
+            ).boxed()
+        )
+}
 
 Statement: Statement = {
     <Expr> ";" => Statement::Expression(<>),
-    Declaration => Statement::Declaration(<>),
+    <Declaration> ";" => Statement::Declaration(<>),
+    <Extern> ";" => Statement::Extern(<>),
     "{" <Statements> "}" => Statement::Compound(<>),
     ForStatement,
+    WhileStatement,
     ReturnStatement,
     StringStatement,
     FunctionDeclaration => Statement::FunctionDeclaration(<>),
     Comment => Statement::Comment(<>),
     Directive => Statement::Directive(<>),
-    Definition => Statement::Definition(<>),
+    Definition,
 }
 
 Directive: Directive = {
-    "#define" <arg1:Identifier> <arg2:ValueOrString> => Directive::Define(<>),
+    "#define" <arg1:Identifier> <arg2:ValueOrString> => Directive::Define(arg1, Expression::Value(arg2).boxed()),
+    "#define" <arg1:Identifier> "(" <arg2:Expr> ")" => Directive::Define(<>),
 }
 
 
-Definition: Definition = {
-    "class" <Identifier> "{" <DefinitionBody> "}" ";"=> Definition::new(<>),
+Definition: Statement = {
+    "class" <class_name:Identifier> "{" <body:DefinitionBody> "}" <name:Identifier?> ";"=> {
+        if let Some(name) = name {
+            Statement::Compound(vec![
+                Box::new(Statement::Definition(Definition::new(class_name.clone(), body))),
+                Box::new(Statement::Declaration(Declaration::new(Type::Identifier(class_name), vec![name], vec![], vec![]))),
+            ])
+        } else {
+            Statement::Definition(Definition::new(class_name, body))
+        }
+    },
 }
 
 DefinitionBody: Vec<Declaration> = Sep<Declaration, ";">;
 
+DeclarationInitialValues: Vec<Option<Box<Expression>>> = 
+    <v:("=" OptionalSep<Expr, ",">)?> => 
+        v.map(|(_, values)| values).unwrap_or_default();
+
 Declaration: Declaration = {
-    #[precedence(level="0")]
-    <ty:Type> <identifiers:SepAtLeastOne<("*"? Identifier), ",">> => 
-    Declaration::new(ty, identifiers.into_iter().map(|(star, ident)| if star.is_some() { ident.pointer() } else { ident }).collect::<Vec<Identifier>>())
+    <ty:Type> <identifiers:SepAtLeastOne<("*"? Identifier), ",">> <initial_values:DeclarationInitialValues> => 
+        Declaration::new(
+            ty, 
+            identifiers.into_iter()
+                .map(|(star, ident)| 
+                    if star.is_some() { ident.pointer() }
+                    else { ident }
+                )
+                .collect::<Vec<Identifier>>(),
+                initial_values,
+                vec![]
+        )
+
 }
 
 FunctionDeclaration: FunctionDeclaration = {
-    <return_type:Type> <identifier:Identifier> "(" <args:FunctionDeclarationArguments> ")" "{" <body:Statements> "}" =>     
-        FunctionDeclaration { return_type, identifier, args, body, }
+    <public:"public"?> <return_type:Type> <star:"*"?> <identifier:Identifier> "(" <args:FunctionDeclarationArguments> ")" "{" <body:Statements> "}" =>     
+        FunctionDeclaration { is_public: public.is_some(), return_type: if star.is_some() { return_type.pointer() } else { return_type }, identifier, args, body, }
 }
 
 FunctionDeclarationArgument: FunctionArgument = {
-    <ty:Type> <identifier:Identifier> "="? <default_value:Value?> => FunctionArgument { ty, identifier, default_value }
+    <ty:Type> <star:"*"*> <identifier:Identifier> "="? <default_value:Value?> => FunctionArgument { ty: star.into_iter().fold(ty, |ty, _| ty.pointer()), identifier, default_value }
 }
 
 FunctionDeclarationArguments: FunctionArguments = {

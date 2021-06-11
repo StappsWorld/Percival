@@ -6,10 +6,10 @@
 
 class TimeEntry
 {
-  TimeEntry next,last;
+  TimeEntry *next,*last;
   U8 type;
   CDate datetime;
-  U8 desc;
+  U8 *desc;
 };
 
 U0 TimeFileRead(TimeEntry *header)
@@ -25,7 +25,7 @@ U0 TimeFileRead(TimeEntry *header)
   while (type=*ptr++) {
     tmpt=CAlloc(sizeof(TimeEntry));
     tmpt->type=type;
-    tmpt->datetime=*ptr(CDate *)++;
+    tmpt->datetime=*ptr++;
     tmpt->desc=StrNew(ptr);
     ptr+=StrLen(ptr)+1;
     QueIns(tmpt,header->last);
@@ -37,8 +37,8 @@ U0 TimeFileWrite(TimeEntry *header)
 {
   U8 *buf,*ptr;
   TimeEntry *tmpt;
-  I64 size=1; //for EOF
-
+  I64 size=1;
+  
   tmpt=header->next;
   while (tmpt!=header) {
     size+=sizeof(U8)+sizeof(CDate)+StrLen(tmpt->desc)+1;
@@ -81,7 +81,7 @@ public Bool TimeRep(TimeEntry **_header=NULL)
   TimeFileRead(header);
   tmpt=header->next;
   while (tmpt!=header) {
-    week=tmpt->datetime.date/7;  //TODO
+    week=tmpt->datetime.date/7;
     if (week!=cur_week) {
       if (!first) {
 	if (is_in)

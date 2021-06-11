@@ -2,7 +2,7 @@
 
 use super::expression::Expression;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Identifier {
     String(String),
     Pointer(Box<Identifier>),
@@ -25,6 +25,7 @@ pub enum Value {
     Float(f64),
     String(String),
     Chars(Vec<u8>),
+    Null,
 }
 
 #[derive(Debug)]
@@ -44,7 +45,7 @@ impl Type {
 
 #[derive(Debug)]
 pub enum Directive {
-    Define(Identifier, Value),
+    Define(Identifier, Box<Expression>),
 }
 
 #[derive(Debug)]
@@ -86,6 +87,19 @@ impl FunctionCall {
             args: args.into_iter().map(|a| Some(a)).collect(),
         }
     }
+
+    pub fn PutChars(chars: Box<Expression>) -> Self {
+        Self {
+            identifier: "PutChars".into(),
+            args: vec![Some(chars)],
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Extern {
+    Class(Identifier),
+    Identifier(Identifier),
 }
 
 #[derive(Debug)]
@@ -93,10 +107,14 @@ pub enum Statement {
     Expression(Box<Expression>),
     Declaration(Declaration),
     Compound(Vec<Box<Statement>>),
-    Loop {
+    For {
         assignment: Option<Box<Expression>>,
         condition: Option<Box<Expression>>,
         each: Option<Box<Expression>>,
+        body: Box<Statement>,
+    },
+    While {
+        condition: Option<Box<Expression>>,
         body: Box<Statement>,
     },
     Return(Box<Expression>),
@@ -105,10 +123,12 @@ pub enum Statement {
     Comment(String),
     Directive(Directive),
     Definition(Definition),
+    Extern(Extern),
 }
 
 #[derive(Debug)]
 pub struct FunctionDeclaration {
+    pub is_public: bool,
     pub return_type: Type,
     pub identifier: Identifier,
     pub args: FunctionArguments,
@@ -156,12 +176,30 @@ impl Definition {
 }
 
 #[derive(Debug)]
+pub struct Meta {
+    pub identifier: Identifier,
+    pub expr: Box<Expression>,
+}
+
+#[derive(Debug)]
 pub struct Declaration {
     pub ty: Type,
     pub identifiers: Vec<Identifier>,
+    pub initial_values: Vec<Option<Box<Expression>>>,
+    pub meta: Vec<Meta>,
 }
 impl Declaration {
-    pub fn new(ty: Type, identifiers: Vec<Identifier>) -> Self {
-        Self { ty, identifiers }
+    pub fn new(
+        ty: Type,
+        identifiers: Vec<Identifier>,
+        initial_values: Vec<Option<Box<Expression>>>,
+        meta: Vec<Meta>,
+    ) -> Self {
+        Self {
+            ty,
+            identifiers,
+            initial_values,
+            meta,
+        }
     }
 }
