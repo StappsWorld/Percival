@@ -91,10 +91,7 @@ impl FunctionCall {
 #[derive(Debug)]
 pub enum Statement {
     Expression(Box<Expression>),
-    Declaration {
-        ty: Type,
-        identifiers: Vec<Identifier>,
-    },
+    Declaration(Declaration),
     Compound(Vec<Box<Statement>>),
     Loop {
         assignment: Option<Box<Expression>>,
@@ -147,21 +144,24 @@ pub struct ElseCondition {
 #[derive(Debug)]
 pub struct Definition {
     pub ident: Identifier,
-    pub fields: Vec<Field>,
+    pub declarations: Vec<Declaration>,
 }
 impl Definition {
-    pub fn new(ident: Identifier, fields: Vec<Field>) -> Self {
-        Self { ident, fields }
+    pub fn new(ident: Identifier, declarations: Vec<Declaration>) -> Self {
+        Self {
+            ident,
+            declarations,
+        }
     }
 }
 
 #[derive(Debug)]
-pub struct Field {
+pub struct Declaration {
     pub ty: Type,
-    pub identifier: Identifier,
+    pub identifiers: Vec<Identifier>,
 }
-impl Field {
-    pub fn new(ty: Type, identifier: Identifier) -> Self {
-        Self { ty, identifier }
+impl Declaration {
+    pub fn new(ty: Type, identifiers: Vec<Identifier>) -> Self {
+        Self { ty, identifiers }
     }
 }

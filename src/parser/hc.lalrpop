@@ -1,6 +1,7 @@
 
 use crate::parser::{ast::*, operators::*, expression::*};
 
+
 #[LALR]
 grammar;
 
@@ -20,7 +21,7 @@ Type: Type = {
     "U64" => Type::Unsigned(64),
     "F64" => Type::Float,
     // TODO: Fix ambiguity with a * b and T *b, if possible 🥺
-    <Type> "*" => <>.pointer(),
+    // <Type> "*" => <>.pointer(),
     Identifier => Type::Identifier(<>),
 }
 
@@ -162,7 +163,7 @@ P3Op: Operator = {
     "&" => Operator::BAnd,
 }
 P2Op: Operator = {
-    // "*" => Operator::Mul,
+    "*" => Operator::Mul,
     "/" => Operator::Div,
     "%" => Operator::Mod,
 }
@@ -192,7 +193,7 @@ P5Expr = Precedence<P5Op, P4Expr>;
 P4Expr = Precedence<P4Op, P3Expr>;
 P3Expr = Precedence<P3Op, P2Expr>;
 P2Expr: Box<Expression> = {
-     P2PreOp P2Expr => 
+    P2PreOp P2Expr => 
         Expression::UnaryOperation(<>).boxed(),
 
     Precedence<P2Op, P1Expr>,
@@ -222,11 +223,6 @@ P0Expr: Box<Expression> = {
 
 Expr = P12Expr;
 
-
-Declaration: Statement = {
-    <ty:Type> <identifiers:SepAtLeastOne<Identifier, ",">> ";" => 
-        Statement::Declaration { ty, identifiers }
-}
 
 Statements: Vec<Box<Statement>> = {
     <mut this:Statements> <next:Statement> => {
@@ -278,9 +274,20 @@ StringStatement: Statement = {
     <FormatStringStatement> ";" => Statement::Expression(Expression::FunctionCall(<>).boxed()),
 }
 
+// CharsStatement: Statement = {
+//     <LiteralChars> ";" => 
+//         Statement::Expression(
+//             Expression::FunctionCall(
+//                 FunctionCall::PutChars(vec![
+//                     Expression::
+//                 ])
+//             )
+//         )
+// }
+
 Statement: Statement = {
     <Expr> ";" => Statement::Expression(<>),
-    Declaration,
+    Declaration => Statement::Declaration(<>),
     "{" <Statements> "}" => Statement::Compound(<>),
     ForStatement,
     ReturnStatement,
@@ -296,21 +303,16 @@ Directive: Directive = {
 }
 
 
-// class TimeEntry
-// {
-//   TimeEntry *next,*last;
-//   U8 type;
-//   CDate datetime;
-//   U8 *desc;
-// };
 Definition: Definition = {
     "class" <Identifier> "{" <DefinitionBody> "}" ";"=> Definition::new(<>),
 }
 
-DefinitionBody: Vec<Field> = Sep<Field, ";">;
+DefinitionBody: Vec<Declaration> = Sep<Declaration, ";">;
 
-Field: Field = {
-    Type Identifier => Field::new(<>)
+Declaration: Declaration = {
+    #[precedence(level="0")]
+    <ty:Type> <identifiers:SepAtLeastOne<("*"? Identifier), ",">> => 
+    Declaration::new(ty, identifiers.into_iter().map(|(star, ident)| if star.is_some() { ident.pointer() } else { ident }).collect::<Vec<Identifier>>())
 }
 
 FunctionDeclaration: FunctionDeclaration = {

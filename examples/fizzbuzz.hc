@@ -1,6 +1,13 @@
-
+class TimeEntry
+{
+  TimeEntry *next,*last;
+  U8 type;
+  CDate datetime;
+  U8 *desc;
+};
 /* For each number that divides evenly with 3, print "Fizz", 5, print "Buzz", 15, print "FizzBuzz", otherwise print the number. */
 U0 Main () {
+  U8 *j,k;
   U8 i;
   for (i = 1; i <= 100; i++) {
     if (!(i % 15))
