@@ -1,9 +1,9 @@
 
 use crate::parser::{ast::*, operators::*, expression::*};
-
+use lalrpop_util::ParseError;
 
 #[LALR]
-grammar;
+grammar(types: &mut Vec<Identifier>);
 
 Comment: String = {
     r"/\*(.|\n)*\*/" => <>.into(),
@@ -21,13 +21,16 @@ Type: Type = {
     "U64" => Type::Unsigned(64),
     "F64" => Type::Float,
     // TODO: Fix ambiguity with a * b and T *b, if possible 🥺
-    // <Type> "*" => <>.pointer(),
-    Identifier => Type::Identifier(<>),
-}
-
-TypeOrPointer: Type = {
-    Type,
-    <Type> "*" => <>.pointer(),
+    <l:@L> <ident:Identifier> <r:@R> =>? {
+        println!("{:#?}", types);
+        if types.contains(&ident) {
+            Ok(Type::Identifier(ident))
+        } else {
+        Err(ParseError::User {
+            error: "Expected type, found identifier"
+        })
+        }
+    },
 }
 
 LiteralSignedInteger: i64 = {
@@ -50,13 +53,19 @@ LiteralInteger: u64 = {
     }
 }
 
+LiteralFloat: f64 = {
+    r"[-+]?[0-9]*\.[0-9]+([eE][-+]?[0-9]+)?" => <>.parse::<f64>().unwrap()
+}
+
 Value: Value = {
     LiteralInteger => Value::Unsigned(<>),
     LiteralSignedInteger => Value::Integer(<>),
     LiteralChars => Value::Chars(<>),
+    LiteralFloat => Value::Float(<>),
     "NULL" => Value::Null,
     "TRUE" => Value::Unsigned(1),
     "FALSE" => Value::Unsigned(0),
+    "lastclass" => Value::LastClass,
 };
 
 ValueOrString: Value = {
@@ -64,7 +73,10 @@ ValueOrString: Value = {
     LiteralString => Value::String(<>),
 }
 
-Identifier: Identifier = r"[_a-zA-Z][_a-zA-Z0-9]{0,30}" => <>.into();
+Identifier: Identifier = {
+    r"[_a-zA-Z][_a-zA-Z0-9]{0,30}" => <>.into(),
+}
+
 
 LiteralString: String = r#""(?:[^"\\]|\\.)*""# => <>.trim_matches('"').into();
 LiteralChars: Vec<u8> = r#"'(?:[^"\\]|\\.)*'"# => <>.trim_matches('\'').as_bytes().to_vec();
@@ -80,7 +92,18 @@ FormatStringStatement: FunctionCall = {
     }
 }
 
-FormatArgs = Sep<Expr, ",">;
+FormatArgs: Vec<Box<Expression>> = {
+    <mut this:FormatArgs> "," <next:Expr> => {
+        this.push(next);
+        this
+    },
+    <Expr> => vec![<>],
+    <mut this:FormatArgs> "," <next:LiteralString> => {
+        this.push(Expression::string_literal(next).boxed());
+        this
+    },
+    <LiteralString> => vec![Expression::string_literal(<>).boxed()],
+};
 
 Sep<T, S>: Vec<T> = {
     <mut this:(<T> S)*> <next:T?> => {
@@ -109,21 +132,19 @@ OptionalSep<T, S>: Vec<Option<T>> = {
 FunctionCallArgument: Box<Expression> = {
     Expr => <>,
     LiteralString => Expression::string_literal(<>).boxed(),
-    <Type> "*" => Expression::Type(<>.pointer()).boxed(),
 }
 
 FunctionCall: FunctionCall = {
     <identifier:Identifier> "(" <args:OptionalSep<FunctionCallArgument, ",">> ")" => 
         FunctionCall { identifier, args},
 
-    "sizeof" "(" <ty:Type> <star:"*"?> ")" => 
+    "sizeof" "(" <ty:Type> ")" => 
         FunctionCall {
             identifier: "sizeof".into(),
             args: vec![
                 Some(
                     Expression::Type(
-                        if star.is_some() { ty.pointer() }
-                        else { ty }
+                        ty,
                     ).boxed()
                 )
             ]
@@ -272,7 +293,7 @@ WhileStatement: Statement = {
 };
 
 ReturnStatement: Statement = {
-    "return" <Expr> ";" => Statement::Return(<>)
+    "return" <Expr?> ";" => Statement::Return(<>)
 }
 
 Extern: Extern = {
@@ -343,10 +364,11 @@ Directive: Directive = {
 
 Definition: Statement = {
     "class" <class_name:Identifier> "{" <body:DefinitionBody> "}" <name:Identifier?> ";"=> {
+        types.push(class_name.clone());
         if let Some(name) = name {
             Statement::Compound(vec![
                 Box::new(Statement::Definition(Definition::new(class_name.clone(), body))),
-                Box::new(Statement::Declaration(Declaration::new(Type::Identifier(class_name), vec![name], vec![], vec![]))),
+                Box::new(Statement::Declaration(Declaration::new(Type::Identifier(class_name), vec![name], vec![]))),
             ])
         } else {
             Statement::Definition(Definition::new(class_name, body))
@@ -354,35 +376,55 @@ Definition: Statement = {
     },
 }
 
-DefinitionBody: Vec<Declaration> = Sep<Declaration, ";">;
+DefinitionBody: Vec<Field> = Sep<Field, ";">;
 
+
+Field: Field = {
+    <ty:Type> <identifiers:SepAtLeastOne<ComplexIdentifier, ",">> <initial_values:DeclarationInitialValues> => 
+        Field::new(
+            ty, 
+            identifiers,
+            initial_values,
+            vec![]
+        ),
+    <ty:Type> <identifiers:SepAtLeastOne<ComplexIdentifier, ",">> 
+    <meta:Repeat<Meta>> => Field::new(
+        ty, 
+        identifiers,
+        vec![],
+        meta
+    ),
+}
+
+Meta: Meta = {
+    Identifier Expr => Meta::new(<>),
+    <ident:Identifier> <expr:LiteralString> => Meta::new(ident, Expression::string_literal(expr).boxed()),
+}
 DeclarationInitialValues: Vec<Option<Box<Expression>>> = 
     <v:("=" OptionalSep<Expr, ",">)?> => 
         v.map(|(_, values)| values).unwrap_or_default();
 
+ComplexIdentifier: Identifier = {
+    Identifier,
+    "*" <Identifier> => <>.pointer(),
+    <ident:Identifier> "[" <sz:LiteralInteger> "]" => ident.array(sz),
+}
 Declaration: Declaration = {
-    <ty:Type> <identifiers:SepAtLeastOne<("*"? Identifier), ",">> <initial_values:DeclarationInitialValues> => 
+    <ty:Type> <identifiers:SepAtLeastOne<ComplexIdentifier, ",">> <initial_values:DeclarationInitialValues> => 
         Declaration::new(
-            ty, 
-            identifiers.into_iter()
-                .map(|(star, ident)| 
-                    if star.is_some() { ident.pointer() }
-                    else { ident }
-                )
-                .collect::<Vec<Identifier>>(),
-                initial_values,
-                vec![]
-        )
-
+            ty,
+            identifiers,
+            initial_values,
+        ),
 }
 
 FunctionDeclaration: FunctionDeclaration = {
-    <public:"public"?> <return_type:Type> <star:"*"?> <identifier:Identifier> "(" <args:FunctionDeclarationArguments> ")" "{" <body:Statements> "}" =>     
-        FunctionDeclaration { is_public: public.is_some(), return_type: if star.is_some() { return_type.pointer() } else { return_type }, identifier, args, body, }
+    <public:"public"?> <return_type:Type> <identifier:Identifier> "(" <args:FunctionDeclarationArguments> ")" "{" <body:Statements> "}" =>     
+        FunctionDeclaration { is_public: public.is_some(), return_type: return_type, identifier, args, body, }
 }
 
 FunctionDeclarationArgument: FunctionArgument = {
-    <ty:Type> <star:"*"*> <identifier:Identifier> "="? <default_value:Value?> => FunctionArgument { ty: star.into_iter().fold(ty, |ty, _| ty.pointer()), identifier, default_value }
+    <ty:Type> <identifier:Identifier> "="? <default_value:Value?> => FunctionArgument { ty, identifier, default_value }
 }
 
 FunctionDeclarationArguments: FunctionArguments = {

@@ -2,14 +2,18 @@
 
 use super::expression::Expression;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Identifier {
     String(String),
     Pointer(Box<Identifier>),
+    Array(Box<Identifier>, u64),
 }
 impl Identifier {
     pub fn pointer(self) -> Self {
         Self::Pointer(Box::new(self))
+    }
+    pub fn array(self, index: u64) -> Self {
+        Self::Array(Box::new(self), index)
     }
 }
 impl From<&str> for Identifier {
@@ -26,6 +30,7 @@ pub enum Value {
     String(String),
     Chars(Vec<u8>),
     Null,
+    LastClass,
 }
 
 #[derive(Debug)]
@@ -117,7 +122,7 @@ pub enum Statement {
         condition: Option<Box<Expression>>,
         body: Box<Statement>,
     },
-    Return(Box<Expression>),
+    Return(Option<Box<Expression>>),
     Condition(Box<Condition>),
     FunctionDeclaration(FunctionDeclaration),
     Comment(String),
@@ -164,14 +169,11 @@ pub struct ElseCondition {
 #[derive(Debug)]
 pub struct Definition {
     pub ident: Identifier,
-    pub declarations: Vec<Declaration>,
+    pub feilds: Vec<Field>,
 }
 impl Definition {
-    pub fn new(ident: Identifier, declarations: Vec<Declaration>) -> Self {
-        Self {
-            ident,
-            declarations,
-        }
+    pub fn new(ident: Identifier, feilds: Vec<Field>) -> Self {
+        Self { ident, feilds }
     }
 }
 
@@ -180,15 +182,20 @@ pub struct Meta {
     pub identifier: Identifier,
     pub expr: Box<Expression>,
 }
+impl Meta {
+    pub fn new(identifier: Identifier, expr: Box<Expression>) -> Self {
+        Self { identifier, expr }
+    }
+}
 
 #[derive(Debug)]
-pub struct Declaration {
+pub struct Field {
     pub ty: Type,
     pub identifiers: Vec<Identifier>,
     pub initial_values: Vec<Option<Box<Expression>>>,
     pub meta: Vec<Meta>,
 }
-impl Declaration {
+impl Field {
     pub fn new(
         ty: Type,
         identifiers: Vec<Identifier>,
@@ -200,6 +207,26 @@ impl Declaration {
             identifiers,
             initial_values,
             meta,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Declaration {
+    pub ty: Type,
+    pub identifiers: Vec<Identifier>,
+    pub initial_values: Vec<Option<Box<Expression>>>,
+}
+impl Declaration {
+    pub fn new(
+        ty: Type,
+        identifiers: Vec<Identifier>,
+        initial_values: Vec<Option<Box<Expression>>>,
+    ) -> Self {
+        Self {
+            ty,
+            identifiers,
+            initial_values,
         }
     }
 }

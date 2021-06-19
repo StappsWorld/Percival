@@ -2,9 +2,11 @@ class TimeEntry
 {
   TimeEntry *next,*last;
   U8 type;
-  CDate datetime;
+  TimeEntry datetime;
   U8 *desc;
 };
+
+class CTask;
 
 /* For each number that divides evenly with 3, print "Fizz", 5, print "Buzz", 15, print "FizzBuzz", otherwise print the number. */
 CTask *Main () {

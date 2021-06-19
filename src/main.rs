@@ -60,6 +60,6 @@ fn main() -> io::Result<()> {
 
     println!("Read {} bytes from {:?}", nbytes, selected_example_path);
     println!("Parsing...");
-    println!("Result: {:#?}", parser::Parser::new().parse(&file_contents));
+    println!("Result: {:#?}", parser::Parser::new().parse(&mut vec![],&file_contents,));
     Ok(())
 }
