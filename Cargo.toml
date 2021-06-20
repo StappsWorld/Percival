@@ -10,6 +10,7 @@ build = "build.rs" # LALRPOP preprocessing
 [dependencies]
 lalrpop-util = "0.19.5"
 regex = "1"
+lazy_static = "1.4.0"
 
 [build-dependencies]
 lalrpop = "0.19.5"
