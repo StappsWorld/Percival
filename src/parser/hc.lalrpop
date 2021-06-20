@@ -1,8 +1,37 @@
 
-use crate::{parser::ast::*, lexer::*};
+use crate::{parser::ast::*, lexer::{*, tok::{Operator, Keyword}}};
 use lalrpop_util::ParseError;
 
 grammar(types: &mut Vec<Identifier>);
+
+Sep<T, S>: Vec<T> = {
+    <mut this:(<T> S)*> <next:T?> => {
+        if let Some(n) = next {
+            this.push(n);
+        }
+        this
+    }
+}
+
+
+SepAtLeastOne<T, S>: Vec<T> = {
+    <mut this:(<T> S)*> <next:T> => {
+        this.push(next);
+        this
+    }
+}
+
+OptionalSep<T, S>: Vec<Option<T>> = {
+    <mut this:(<T?> S)*> <next:T?> => {
+        this.push(next);
+        this
+    }
+}
+
+Precedence<Op,NextPrecedence>: Box<Expr> = {
+    Precedence<Op,NextPrecedence> Op NextPrecedence => Expr::infix(<>).boxed(),
+    NextPrecedence
+};
 
 LiteralSignedInteger: i64 = "signed int";
 LiteralUnsignedInteger: u64 = "unsigned int";
@@ -14,7 +43,8 @@ Identifier: Identifier = {
     "identifier" => Identifier::String(<>),
 }
 TypeIdentifier: Identifier = {
-    "type identifier" => Identifier::Type(<>)
+    "type identifier" => Identifier::Type(<>),
+    <TypeIdentifier> "*" => <>.pointer(),
 }
 
 Value: Value = {
@@ -24,31 +54,220 @@ Value: Value = {
     LiteralFloat => Value::Float(<>),
     LiteralString => Value::String(<>),
     LiteralChars => Value::Chars(<>),
+    "NULL" => Value::Keyword(<>.expect_keyword()),
+    "TRUE" => Value::Keyword(<>.expect_keyword()),
+    "FALSE" => Value::Keyword(<>.expect_keyword()),
+    "lastclass" => Value::Keyword(<>.expect_keyword()),
 }
 
-Expr: Expr = {
-    #[precedence(level="1")]
+
+P12Op: Token = {
+    "=",
+    "<<=",
+    ">>=",
+    "*=",
+    "/=",
+    "&=",
+    "|=",
+    "^=",
+    "+=",
+    "-=",
+}
+P11Op: Token = {
+    "||",
+}
+P10Op: Token = {
+    "^^",
+}
+P9Op: Token = {
+    "&&",
+}
+P8Op: Token = {
+    "==",
+    "!=",
+}
+P7Op: Token = {
+    "<",
+    ">",
+    "<=",
+    ">=",
+}
+P6Op: Token = {
+    "+",
+    "-",
+}
+P5Op: Token = {
+    "|",
+}
+P4Op: Token = {
+    "^",
+}
+P3Op: Token = {
+    "&",
+}
+P2Op: Token = {
+    "*",
+    "/",
+    "%",
+}
+P2PreOp: Token = {
+    "!",
+    "*",
+    "&",
+}
+P1Op: Token = {
+    "`",
+    ">>",
+    "<<",
+}
+P1PostUnaryOp: Token = {
+    "++",
+    "--",
+}
+
+P12Expr = Precedence<P12Op, P11Expr>;
+P11Expr = Precedence<P11Op, P10Expr>;
+P10Expr = Precedence<P10Op, P9Expr>;
+P9Expr = Precedence<P9Op, P8Expr>;
+P8Expr = Precedence<P8Op, P7Expr>;
+P7Expr = Precedence<P7Op, P6Expr>;
+P6Expr = Precedence<P6Op, P5Expr>;
+P5Expr = Precedence<P5Op, P4Expr>;
+P4Expr = Precedence<P4Op, P3Expr>;
+P3Expr = Precedence<P3Op, P2Expr>;
+P2Expr: Box<Expr> = {
+    P2PreOp P2Expr => 
+        Expr::prefix(<>).boxed(),
+
+    Precedence<P2Op, P1Expr>,
+};
+P1Expr: Box<Expr> = {
+    P1Expr P1PostUnaryOp =>
+        Expr::postfix(
+            <>,
+        ).boxed(),
+
+        
+    <P1Expr> "[" <Expr> "]" => Expr::Index(<>).boxed(),
+    <P1Expr> "->" <Identifier> => Expr::IndirectMemberAccess(<>).boxed(),
+    <P1Expr> "." <Identifier> => Expr::MemberAccess(<>).boxed(),
+
+    P1Expr P1Op P0Expr => Expr::infix(<>).boxed(),
+
+    P0Expr
+}
+
+P0Expr: Box<Expr> = {
+    Value => Expr::Value(<>).boxed(),
+    FunctionCall => Expr::FunctionCall(<>).boxed(),
     "(" <Expr> ")",
-    Value => Expr::Value(<>),
-
-    #[precedence(level="2")] #[assoc(side="left")]
-    <Expr> "*" <Expr> => Expr::mul(<>),
-    <Expr> "/" <Expr> => Expr::div(<>),
-
-    #[precedence(level="3")] #[assoc(side="left")]
-    <Expr> "+" <Expr> => Expr::add(<>),
-    <Expr> "-" <Expr> => Expr::sub(<>),
 }
+
+Expr = P12Expr;
+
+FunctionCall: FunctionCall = 
+    <ident:Identifier> "(" <args:OptionalSep<Expr, ",">> ")" => FunctionCall { ident, args };
 
 Stmt: Statement = {
     <Expr> ";" => Statement::Expr(<>),
-    <ty:TypeIdentifier> <star:"*"?> <ident:Identifier> "=" <value:Expr> ";" => 
-        Statement::Assignment { ty: ty.maybe_pointer(star), ident, value },
-    "class" <ident:TypeIdentifier> ";" => {
-        types.push(ident.clone());
-        Statement::Class(ident)
+
+    "return" <Expr> ";" => Statement::Return(<>),
+
+    VariableDeclaration,
+
+    ClassDefinition,
+
+    FunctionDeclaration,
+
+    CompoundStatement,
+
+    ForStatement,
+
+    // TODO: IfStatement,
+
+    // TODO: WhileStatement,
+}
+
+
+
+ForStatement: Statement = {
+    "for" "(" <init:Expr?> ";" <condition:Expr?> ";" <each:Expr?> ")" <body:CompoundStatement> =>
+        Statement::For {
+            init,
+            condition,
+            each,
+            body: Some(body.boxed())
+        },
+    
+    // "for" "(" <init:Expr?> ";" <condition:Expr?> ";" <each:Expr?> ")" <body_expr:Expr?> ";" =>
+    // Statement::For {
+    //     init,
+    //     condition,
+    //     each,
+    //     body: body_expr.map(|expr| Statement::Expr(expr).boxed())
+    // },
+}
+
+CompoundStatement: Statement = 
+    "{" <Stmts> "}" => 
+        Statement::Compound(
+            <>.into_iter()
+              .map(Statement::boxed)
+              .collect::<Vec<Box<Statement>>>()
+        );
+
+
+FunctionDeclaration: Statement = {
+    <ty:TypeIdentifier> <ident:Identifier> "(" 
+    <args:Sep<FunctionDeclarationArgument, ",">> ")" <body:CompoundStatement>  => 
+    Statement::FunctionDeclaration { ty, ident, args, body: body.boxed() },
+}
+
+FunctionDeclarationArgument: FunctionDeclarationArgument = {
+    <ty:TypeIdentifier> <ident:Identifier> =>
+        FunctionDeclarationArgument {
+            ty, ident, default_value: None,
+        },
+    <ty:TypeIdentifier> <ident:Identifier> "=" <value:Expr> => FunctionDeclarationArgument {
+        ty, ident, default_value: Some(value),
     },
 }
+
+VariableDeclaration: Statement = {
+    <ty:TypeIdentifier> <ident:Identifier> "=" <value:Expr> ";" => 
+        Statement::Assignment { ty, ident, value: Some(value) },
+
+    <ty:TypeIdentifier> <ident:Identifier> ";" =>
+        Statement::Assignment { ty, ident, value: None },
+}
+
+ClassDefinition: Statement = {
+    "extern" "class" <ident:TypeIdentifier> ";" => {
+        types.push(ident.clone());
+        Statement::ExternClass(ident)
+    },
+
+    "class" <ident:TypeIdentifier> <fields:ClassBody?> ";" => {
+        types.push(ident.clone());
+        Statement::Class(ClassDefinition {
+            ident,
+            fields: fields.unwrap_or_default(),
+        })
+    }
+}
+
+ClassBody: Vec<ClassField> =
+    "{" <Sep<ClassField, ";">> "}";
+
+ClassField: ClassField = {
+    <ty:TypeIdentifier> <name:Identifier> =>
+        ClassField { ty, name, default_value: None },
+
+    <ty:TypeIdentifier> <name:Identifier> "=" <default_value:Expr> =>
+        ClassField { ty, name, default_value: Some(default_value) },
+}
+
+
 
 Stmts: Vec<Statement> = {
     <mut this:Stmts> <next:Stmt> => {
@@ -64,41 +283,41 @@ extern {
     type Location = Location;
     type Error = LexicalError;
     enum Token {
-        "=" => Token::OpAssign,
-        "<<=" => Token::OpAShl,
-        ">>=" => Token::OpAShr,
-        "*=" => Token::OpAMul,
-        "/=" => Token::OpADiv,
-        "&=" => Token::OpABAnd,
-        "|=" => Token::OpABOr,
-        "^=" => Token::OpABXor,
-        "+=" => Token::OpAAdd,
-        "-=" => Token::OpASub,
-        "||" => Token::OpOr,
-        "^^" => Token::OpXor,
-        "&&" => Token::OpAnd,
-        "==" => Token::OpEq,
-        "!=" => Token::OpNe,
-        "<" => Token::OpLt,
-        ">" => Token::OpGt,
-        "<=" => Token::OpLe,
-        ">=" => Token::OpGe,
-        "+" => Token::OpAdd,
-        "-" => Token::OpSub,
-        "|" => Token::OpBOr,
-        "^" => Token::OpBXor,
-        "&" => Token::OpBAnd,
-        "*" => Token::OpStar,
-        "/" => Token::OpDiv,
-        "%" => Token::OpMod,
-        "!" => Token::OpNot,
-        "*" => Token::OpStar,
-        "&" => Token::OpRef,
-        "`" => Token::OpPower,
-        ">>" => Token::OpShr,
-        "<<" => Token::OpShl,
-        "++" => Token::OpAAdd,
-        "--" => Token::OpASub,
+        "`" => Token::Operator(Operator::Power),
+        ">>" => Token::Operator(Operator::Shr),
+        "<<" => Token::Operator(Operator::Shl),
+        "*" => Token::Operator(Operator::Star),
+        "/" => Token::Operator(Operator::Div),
+        "%" => Token::Operator(Operator::Mod),
+        "^" => Token::Operator(Operator::BXor),
+        "|" => Token::Operator(Operator::BOr),
+        "+" => Token::Operator(Operator::Add),
+        "++" => Token::Operator(Operator::Inc),
+        "-" => Token::Operator(Operator::Sub),
+        "--" => Token::Operator(Operator::Dec),
+        "<" => Token::Operator(Operator::Lt),
+        ">" => Token::Operator(Operator::Gt),
+        "<=" => Token::Operator(Operator::Le),
+        ">=" => Token::Operator(Operator::Ge),
+        "==" => Token::Operator(Operator::Eq),
+        "!=" => Token::Operator(Operator::Ne),
+        "&&" => Token::Operator(Operator::And),
+        "^^" => Token::Operator(Operator::Xor),
+        "||" => Token::Operator(Operator::Or),
+        "=" => Token::Operator(Operator::Assign),
+        "<<=" => Token::Operator(Operator::AShl),
+        ">>=" => Token::Operator(Operator::AShr),
+        "*=" => Token::Operator(Operator::AMul),
+        "/=" => Token::Operator(Operator::ADiv),
+        "&=" => Token::Operator(Operator::ABAnd),
+        "|=" => Token::Operator(Operator::ABOr),
+        "^=" => Token::Operator(Operator::ABXor),
+        "+=" => Token::Operator(Operator::AAdd),
+        "-=" => Token::Operator(Operator::ASub),
+        "!" => Token::Operator(Operator::Not),
+        "&" => Token::Operator(Operator::Amp),
+        "->" => Token::Operator(Operator::IndirectMemberAccess),
+        "." => Token::Operator(Operator::MemberAccess),
         "signed int" => Token::Signed(<i64>),
         "unsigned int" => Token::Unsigned(<u64>),
         "float" => Token::Float(<f64>),
@@ -106,18 +325,19 @@ extern {
         "chars literal" => Token::Chars(<Vec<u8>>),
         "identifier" => Token::Identifier(<String>),
         "type identifier" => Token::TypeIdent(<String>),
-        "if" => Token::KwIf,
-        "else" => Token::KwElse,
-        "return" => Token::KwReturn,
-        "class" => Token::KwClass,
-        "define" => Token::KwDefine,
-        "extern" => Token::KwExtern,
-        "while" => Token::KwWhile,
-        "public" => Token::KwPublic,
-        "NULL" => Token::KwNull,
-        "TRUE" => Token::KwTrue,
-        "FALSE" => Token::KwFalse,
-        "lastclass" => Token::KwLastClass,
+        "if" => Token::Keyword(Keyword::If),
+        "else" => Token::Keyword(Keyword::Else),
+        "return" => Token::Keyword(Keyword::Return),
+        "class" => Token::Keyword(Keyword::Class),
+        "define" => Token::Keyword(Keyword::Define),
+        "extern" => Token::Keyword(Keyword::Extern),
+        "while" => Token::Keyword(Keyword::While),
+        "for" => Token::Keyword(Keyword::For),
+        "public" => Token::Keyword(Keyword::Public),
+        "NULL" => Token::Keyword(Keyword::Null),
+        "TRUE" => Token::Keyword(Keyword::True),
+        "FALSE" => Token::Keyword(Keyword::False),
+        "lastclass" => Token::Keyword(Keyword::LastClass),
         "," => Token::Comma,
         ";" => Token::Semicolon,
         "{" => Token::OpenCurly,

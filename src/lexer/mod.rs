@@ -6,6 +6,8 @@ lazy_static::lazy_static! {
 
 use regex::Regex;
 
+use crate::lexer::tok::{Keyword, Operator};
+
 pub use self::{
     err::LexicalError,
     pos::{Location, Spanned},
@@ -42,11 +44,37 @@ fn is_float(s: &String) -> bool {
 }
 
 fn is_operator_char(ch: &char) -> bool {
-    "`-%|+/&^*=!><".contains(&ch.to_string())
+    "-+&.>/^|<*!%=`".contains(&ch.to_string())
 }
 
 fn is_kw_char(ch: &char) -> bool {
     "dplwnubhsfeatxric".contains(&ch.to_string())
+}
+
+fn is_keyword(s: &String) -> bool {
+    [
+        "if",
+        "else",
+        "return",
+        "class",
+        "define",
+        "extern",
+        "while",
+        "for",
+        "public",
+        "NULL",
+        "TRUE",
+        "FALSE",
+        "lastclass",
+    ]
+    .contains(&s.as_str())
+}
+
+fn is_builtin_type(s: &String) -> bool {
+    [
+        "U0", "I8", "U8", "I16", "U16", "I32", "U32", "I64", "U64", "F64",
+    ]
+    .contains(&s.as_str())
 }
 
 fn is_punctuation(ch: &char) -> bool {
@@ -94,233 +122,50 @@ impl Lexer {
             .unwrap_or_default()
     }
 
-    fn operator(&self, start: Location, ch: char) -> Option<Spanned> {
-        match ch {
-            ',' => Some(Spanned {
-                tok: Token::Comma,
+    fn operator(&mut self, start: Location, ch: char) -> Option<Spanned> {
+        let operators = vec![
+            "`", ">>", "<<", "*", "/", "%", "^", "|", "+", "++", "-", "--", "<", ">", "<=", ">=",
+            "==", "!=", "&&", "^^", "||", "=", "<<=", ">>=", "*=", "/=", "&=", "|=", "^=", "+=",
+            "-=", "!", "&", "->", ".",
+        ];
+
+        let mut buffer = ch.to_string();
+        let mut i = 0;
+        while let Some(ch) = self.lookahead_offset(i) {
+            if !is_operator_char(&ch) {
+                break;
+            } else {
+                buffer.push(ch);
+            }
+            i += 1;
+        }
+
+        self.location = self.location.add(buffer.len() - 1);
+        if operators.contains(&buffer.as_str()) {
+            Some(Spanned {
                 start,
-                end: start,
-            }),
-            ';' => Some(Spanned {
-                tok: Token::Semicolon,
-                start,
-                end: start,
-            }),
-            '{' => Some(Spanned {
-                tok: Token::OpenCurly,
-                start,
-                end: start,
-            }),
-            '}' => Some(Spanned {
-                tok: Token::CloseCurly,
-                start,
-                end: start,
-            }),
-            '(' => Some(Spanned {
-                tok: Token::OpenParen,
-                start,
-                end: start,
-            }),
-            ')' => Some(Spanned {
-                tok: Token::CloseParen,
-                start,
-                end: start,
-            }),
-            '[' => Some(Spanned {
-                tok: Token::OpenSquare,
-                start,
-                end: start,
-            }),
-            ']' => Some(Spanned {
-                tok: Token::CloseSquare,
-                start,
-                end: start,
-            }),
-            '`' => Some(Spanned {
-                tok: Token::OpPower,
-                start,
-                end: start,
-            }),
-            '>' if self.lookahead_eq('>', 1) => Some(Spanned {
-                tok: Token::OpShr,
-                start,
-                end: start.add(1),
-            }),
-            '<' if self.lookahead_eq('<', 1) => Some(Spanned {
-                tok: Token::OpShl,
-                start,
-                end: start.add(1),
-            }),
-            '*' => Some(Spanned {
-                tok: Token::OpStar,
-                start,
-                end: start,
-            }),
-            '/' => Some(Spanned {
-                tok: Token::OpDiv,
-                start,
-                end: start,
-            }),
-            '%' => Some(Spanned {
-                tok: Token::OpMod,
-                start,
-                end: start,
-            }),
-            '&' => Some(Spanned {
-                tok: Token::OpBAnd,
-                start,
-                end: start,
-            }),
-            '|' => Some(Spanned {
-                tok: Token::OpBXor,
-                start,
-                end: start,
-            }),
-            '^' => Some(Spanned {
-                tok: Token::OpBOr,
-                start,
-                end: start,
-            }),
-            '+' => Some(Spanned {
-                tok: Token::OpAdd,
-                start,
-                end: start,
-            }),
-            '-' => Some(Spanned {
-                tok: Token::OpSub,
-                start,
-                end: start,
-            }),
-            '<' => Some(Spanned {
-                tok: Token::OpLt,
-                start,
-                end: start,
-            }),
-            '>' => Some(Spanned {
-                tok: Token::OpGt,
-                start,
-                end: start,
-            }),
-            '>' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpLe,
-                start,
-                end: start.add(1),
-            }),
-            '<' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpGe,
-                start,
-                end: start.add(1),
-            }),
-            '=' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpEq,
-                start,
-                end: start.add(1),
-            }),
-            '!' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpNe,
-                start,
-                end: start.add(1),
-            }),
-            '&' if self.lookahead_eq('&', 1) => Some(Spanned {
-                tok: Token::OpAnd,
-                start,
-                end: start.add(1),
-            }),
-            '|' if self.lookahead_eq('|', 1) => Some(Spanned {
-                tok: Token::OpXor,
-                start,
-                end: start.add(1),
-            }),
-            '^' if self.lookahead_eq('^', 1) => Some(Spanned {
-                tok: Token::OpOr,
-                start,
-                end: start.add(1),
-            }),
-            '=' => Some(Spanned {
-                tok: Token::OpAssign,
-                start,
-                end: start,
-            }),
-            '<' if self.lookahead_eq('<', 1) && self.lookahead_eq('=', 2) => Some(Spanned {
-                tok: Token::OpAShl,
-                start,
-                end: start.add(2),
-            }),
-            '>' if self.lookahead_eq('>', 1) && self.lookahead_eq('=', 2) => Some(Spanned {
-                tok: Token::OpAShr,
-                start,
-                end: start.add(2),
-            }),
-            '*' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpAMul,
-                start,
-                end: start.add(1),
-            }),
-            '/' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpADiv,
-                start,
-                end: start.add(1),
-            }),
-            '&' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpABAnd,
-                start,
-                end: start.add(1),
-            }),
-            '|' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpABOr,
-                start,
-                end: start.add(1),
-            }),
-            '^' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpABXor,
-                start,
-                end: start.add(1),
-            }),
-            '+' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpAAdd,
-                start,
-                end: start.add(1),
-            }),
-            '-' if self.lookahead_eq('=', 1) => Some(Spanned {
-                tok: Token::OpASub,
-                start,
-                end: start.add(1),
-            }),
-            '!' => Some(Spanned {
-                tok: Token::OpNot,
-                start,
-                end: start,
-            }),
-            '&' => Some(Spanned {
-                tok: Token::OpRef,
-                start,
-                end: start,
-            }),
-            '-' if self.lookahead_eq('>', 1) => Some(Spanned {
-                tok: Token::OpIndirectMemberAccess,
-                start,
-                end: start.add(1),
-            }),
-            '.' => Some(Spanned {
-                tok: Token::OpMemberAccess,
-                start,
-                end: start,
-            }),
-            _ => None,
+                tok: Token::Operator(Operator::from(buffer)),
+                end: self.location,
+            })
+        } else {
+            None
         }
     }
 
     fn number(&mut self, start: Location, ch: char) -> Option<Spanned> {
-        let mut s = ch.to_string();
-        s = self
+        let mut s = self
             .text
             .chars()
             .skip(self.location.absolute.to_usize())
             .take_while(|ch| is_digit(ch) || "eE+-.".contains(&ch.to_string()))
-            .fold(s, |mut s, ch| {
+            .fold(ch.to_string(), |mut s, ch| {
                 s.push(ch);
                 s
             });
+
+        if (s.ends_with(vec!['-', '+'].as_slice())) {
+            s.pop();
+        }
 
         self.location = self.location.add(s.len() - 1);
 
@@ -357,140 +202,39 @@ impl Lexer {
                 ident_str
             });
 
-        let len = ident_str.len();
-        self.location = self.location.add(len - 1);
+        self.location = self.location.add(ident_str.len() - 1);
 
-        match ident_str.as_str() {
-            "if" => Some(Spanned {
+        if is_keyword(&ident_str) {
+            Some(Spanned {
                 start,
-                tok: Token::KwIf,
+                tok: Token::Keyword(Keyword::from(ident_str)),
                 end: self.location,
-            }),
-            "else" => Some(Spanned {
+            })
+        } else if is_builtin_type(&ident_str) {
+            Some(Spanned {
                 start,
-                tok: Token::KwElse,
+                tok: Token::TypeIdent(ident_str),
                 end: self.location,
-            }),
-            "return" => Some(Spanned {
-                start,
-                tok: Token::KwReturn,
-                end: self.location,
-            }),
-            "class" => Some(Spanned {
-                start,
-                tok: Token::KwClass,
-                end: self.location,
-            }),
-            "define" => Some(Spanned {
-                start,
-                tok: Token::KwDefine,
-                end: self.location,
-            }),
-            "extern" => Some(Spanned {
-                start,
-                tok: Token::KwExtern,
-                end: self.location,
-            }),
-            "while" => Some(Spanned {
-                start,
-                tok: Token::KwWhile,
-                end: self.location,
-            }),
-            "public" => Some(Spanned {
-                start,
-                tok: Token::KwPublic,
-                end: self.location,
-            }),
-            "NULL" => Some(Spanned {
-                start,
-                tok: Token::KwNull,
-                end: self.location,
-            }),
-            "TRUE" => Some(Spanned {
-                start,
-                tok: Token::KwTrue,
-                end: self.location,
-            }),
-            "FALSE" => Some(Spanned {
-                start,
-                tok: Token::KwFalse,
-                end: self.location,
-            }),
-            "lastclass" => Some(Spanned {
-                start,
-                tok: Token::KwLastClass,
-                end: self.location,
-            }),
-
-            "U0" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("U0".into()),
-                end: self.location,
-            }),
-            "I8" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("I8".into()),
-                end: self.location,
-            }),
-            "U8" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("U8".into()),
-                end: self.location,
-            }),
-            "I16" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("I16".into()),
-                end: self.location,
-            }),
-            "U16" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("U16".into()),
-                end: self.location,
-            }),
-            "I32" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("I32".into()),
-                end: self.location,
-            }),
-            "U32" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("U32".into()),
-                end: self.location,
-            }),
-            "I64" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("I64".into()),
-                end: self.location,
-            }),
-            "U64" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("U64".into()),
-                end: self.location,
-            }),
-            "F64" => Some(Spanned {
-                start,
-                tok: Token::TypeIdent("F64".into()),
-                end: self.location,
-            }),
-            _ => {
-                if let Some(Token::KwClass) = self.last {
+            })
+        } else {
+            match &self.last {
+                Some(Token::Keyword(Keyword::Class)) => {
                     self.types.push(ident_str.clone());
                     Some(Spanned {
                         start,
                         tok: Token::TypeIdent(ident_str),
                         end: self.location,
                     })
-                } else {
-                    Some(Spanned {
-                        start,
-                        tok: if !self.types.contains(&ident_str) {
-                            Token::Identifier(ident_str)
-                        } else {
-                            Token::TypeIdent(ident_str)
-                        },
-                        end: self.location,
-                    })
                 }
+                _ => Some(Spanned {
+                    start,
+                    tok: if !self.types.contains(&ident_str) {
+                        Token::Identifier(ident_str)
+                    } else {
+                        Token::TypeIdent(ident_str)
+                    },
+                    end: self.location,
+                }),
             }
         }
     }
@@ -585,11 +329,7 @@ impl Lexer {
     fn bump(&mut self) -> Option<(Location, char)> {
         match self.current() {
             Some(ch) => {
-                if (self.location.absolute.to_usize() == 0 && !self.seen_first) {
-                    self.seen_first = true;
-                } else {
-                    self.location = self.location.shift(ch);
-                }
+                self.location = self.location.shift(ch);
                 Some((self.location, ch))
             }
             None => None,

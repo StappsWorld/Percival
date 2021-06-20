@@ -1,16 +1,8 @@
-class TimeEntry
-{
-  TimeEntry *next,*last;
-  U8 type;
-  TimeEntry datetime;
-  U8 *desc;
-};
-
 class CTask;
 
-/* For each number that divides evenly with 3, print "Fizz", 5, print "Buzz", 15, print "FizzBuzz", otherwise print the number. */
 CTask *Main () {
-  U8 *j,k;
+  U8 *j;
+  U8 *k;
   U8 i;
   for (i = 1; i <= 100; i++) {
     if (!(i % 15))
@@ -24,5 +16,5 @@ CTask *Main () {
     Print("\n");
   }
   
-  TimeEntry *tmpt=header->next,*tmpt1;
+  U0 *tmpt=header->next;
 }

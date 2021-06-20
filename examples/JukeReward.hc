@@ -1,4 +1,5 @@
-
+extern class CTask;
+extern class CDoc;
 CTask *JukeReward(U8 *msg)
 {
   U8 *buf;

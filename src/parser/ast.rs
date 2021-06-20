@@ -1,3 +1,8 @@
+use crate::lexer::{
+    tok::{Keyword, Operator},
+    Token,
+};
+
 #[derive(Debug, Clone)]
 pub enum Identifier {
     String(String),
@@ -26,39 +31,111 @@ pub enum Value {
     Float(f64),
     String(String),
     Chars(Vec<u8>),
+    Keyword(Keyword),
 }
 
 #[derive(Debug)]
 pub enum Expr {
-    Add(Box<Expr>, Box<Expr>),
-    Sub(Box<Expr>, Box<Expr>),
-    Mul(Box<Expr>, Box<Expr>),
-    Div(Box<Expr>, Box<Expr>),
+    Infix {
+        lhs: Box<Expr>,
+        op: Operator,
+        rhs: Box<Expr>,
+    },
+    Prefix {
+        op: Operator,
+        rhs: Box<Expr>,
+    },
+    Postfix {
+        lhs: Box<Expr>,
+        op: Operator,
+    },
     Value(Value),
+    Identifier(Identifier),
+    Index(Box<Expr>, Box<Expr>),
+    MemberAccess(Box<Expr>, Identifier),
+    IndirectMemberAccess(Box<Expr>, Identifier),
+    FunctionCall(FunctionCall),
 }
 
 impl Expr {
-    pub fn add(lhs: Expr, rhs: Expr) -> Self {
-        Self::Add(Box::new(lhs), Box::new(rhs))
+    pub fn boxed(self) -> Box<Self> {
+        Box::new(self)
     }
-    pub fn sub(lhs: Expr, rhs: Expr) -> Self {
-        Self::Sub(Box::new(lhs), Box::new(rhs))
+
+    pub fn infix(lhs: Box<Expr>, op: Token, rhs: Box<Expr>) -> Self {
+        Self::Infix {
+            lhs,
+            op: op.expect_operator(),
+            rhs,
+        }
     }
-    pub fn mul(lhs: Expr, rhs: Expr) -> Self {
-        Self::Mul(Box::new(lhs), Box::new(rhs))
+    pub fn prefix(op: Token, rhs: Box<Expr>) -> Self {
+        Self::Prefix {
+            op: op.expect_operator(),
+            rhs,
+        }
     }
-    pub fn div(lhs: Expr, rhs: Expr) -> Self {
-        Self::Div(Box::new(lhs), Box::new(rhs))
+    pub fn postfix(lhs: Box<Expr>, op: Token) -> Self {
+        Self::Postfix {
+            lhs,
+            op: op.expect_operator(),
+        }
     }
 }
 
 #[derive(Debug)]
+pub struct FunctionCall {
+    pub ident: Identifier,
+    pub args: Vec<Option<Box<Expr>>>,
+}
+
+#[derive(Debug)]
 pub enum Statement {
-    Expr(Expr),
+    Expr(Box<Expr>),
     Assignment {
         ty: Identifier,
         ident: Identifier,
-        value: Expr,
+        value: Option<Box<Expr>>,
     },
-    Class(Identifier),
+    FunctionDeclaration {
+        ty: Identifier,
+        ident: Identifier,
+        args: Vec<FunctionDeclarationArgument>,
+        body: Box<Statement>,
+    },
+    Class(ClassDefinition),
+    ExternClass(Identifier),
+    Compound(Vec<Box<Statement>>),
+    Return(Box<Expr>),
+    For {
+        init: Option<Box<Expr>>,
+        condition: Option<Box<Expr>>,
+        each: Option<Box<Expr>>,
+        body: Option<Box<Statement>>,
+    },
+}
+impl Statement {
+    pub fn boxed(self) -> Box<Self> {
+        Box::new(self)
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionDeclarationArgument {
+    pub ty: Identifier,
+    pub ident: Identifier,
+    pub default_value: Option<Box<Expr>>,
+}
+
+#[derive(Debug)]
+pub struct ClassDefinition {
+    pub ident: Identifier,
+    pub fields: Vec<ClassField>,
+}
+
+#[derive(Debug)]
+pub struct ClassField {
+    pub ty: Identifier,
+    pub name: Identifier,
+    pub default_value: Option<Box<Expr>>,
 }
