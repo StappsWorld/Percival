@@ -2,7 +2,7 @@
 use crate::{parser::ast::*, lexer::{*, tok::{Operator, Keyword}}};
 use lalrpop_util::ParseError;
 
-grammar(types: &mut Vec<Identifier>);
+grammar;
 
 Sep<T, S>: Vec<T> = {
     <mut this:(<T> S)*> <next:T?> => {
@@ -173,6 +173,8 @@ Stmt: Statement = {
 
     "return" <Expr> ";" => Statement::Return(<>),
 
+    // TODO: Multiple declarations in a single statement
+    // U0 x = 0, y, z = 2; => x = 0; y = null; z = 2;
     VariableDeclaration,
 
     ClassDefinition,
@@ -183,11 +185,27 @@ Stmt: Statement = {
 
     ForStatement,
 
-    // TODO: IfStatement,
+    IfStatement,
 
     // TODO: WhileStatement,
 }
 
+IfStatement: Statement = {
+    "if" "(" <condition:Expr> ")" <body:IfBody> <otherwise:ElseStatement?> => 
+        Statement::If { condition, body, otherwise: otherwise.map(Box::new)  }
+}
+
+ElseStatement: Else = {
+    "else" <body:IfBody> => 
+        Else { condition: None, body, otherwise: None, },
+    "else" "if" "(" <condition:Expr> ")" <body:IfBody> <otherwise:ElseStatement?> => 
+        Else { condition: Some(condition), body, otherwise: otherwise.map(Box::new) }
+}
+
+IfBody: Box<Statement> = {
+    CompoundStatement => <>.boxed(),
+    <Expr> ";" => Statement::Expr(<>).boxed()
+};
 
 
 ForStatement: Statement = {
@@ -199,13 +217,13 @@ ForStatement: Statement = {
             body: Some(body.boxed())
         },
     
-    // "for" "(" <init:Expr?> ";" <condition:Expr?> ";" <each:Expr?> ")" <body_expr:Expr?> ";" =>
-    // Statement::For {
-    //     init,
-    //     condition,
-    //     each,
-    //     body: body_expr.map(|expr| Statement::Expr(expr).boxed())
-    // },
+    "for" "(" <init:Expr?> ";" <condition:Expr?> ";" <each:Expr?> ")" <body_expr:Expr?> ";" =>
+    Statement::For {
+        init,
+        condition,
+        each,
+        body: body_expr.map(|expr| Statement::Expr(expr).boxed())
+    },
 }
 
 CompoundStatement: Statement = 
@@ -243,12 +261,10 @@ VariableDeclaration: Statement = {
 
 ClassDefinition: Statement = {
     "extern" "class" <ident:TypeIdentifier> ";" => {
-        types.push(ident.clone());
         Statement::ExternClass(ident)
     },
 
     "class" <ident:TypeIdentifier> <fields:ClassBody?> ";" => {
-        types.push(ident.clone());
         Statement::Class(ClassDefinition {
             ident,
             fields: fields.unwrap_or_default(),

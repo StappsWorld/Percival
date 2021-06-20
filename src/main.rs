@@ -59,8 +59,6 @@ fn main() -> io::Result<()> {
 
     let nbytes = File::open(selected_example_path)?.read_to_string(&mut file_contents)?;
 
-    let mut types = vec![];
-
     println!("Read {} bytes from {:?}", nbytes, selected_example_path);
     println!("Parsing...");
     println!(
@@ -72,9 +70,8 @@ fn main() -> io::Result<()> {
     );
     println!(
         "{:#?}",
-        parser::Parser::new().parse(&mut types, lexer::Lexer::new(&file_contents))
+        parser::Parser::new().parse(lexer::Lexer::new(&file_contents))
     );
 
-    println!("Defined types: {:#?}", types);
     Ok(())
 }

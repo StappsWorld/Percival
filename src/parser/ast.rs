@@ -113,11 +113,23 @@ pub enum Statement {
         each: Option<Box<Expr>>,
         body: Option<Box<Statement>>,
     },
+    If {
+        condition: Box<Expr>,
+        body: Box<Statement>,
+        otherwise: Option<Box<Else>>,
+    },
 }
 impl Statement {
     pub fn boxed(self) -> Box<Self> {
         Box::new(self)
     }
+}
+
+#[derive(Debug)]
+pub struct Else {
+    pub condition: Option<Box<Expr>>,
+    pub body: Box<Statement>,
+    pub otherwise: Option<Box<Else>>,
 }
 
 #[derive(Debug)]
