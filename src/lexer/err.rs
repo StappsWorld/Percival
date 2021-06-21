@@ -8,4 +8,5 @@ pub enum LexicalError {
     ExpectedPunctuation(Location),
     InvalidString(Location),
     InvalidChars(Location),
+    InvalidDirective(Location),
 }

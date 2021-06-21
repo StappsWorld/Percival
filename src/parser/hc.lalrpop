@@ -173,6 +173,8 @@ Stmt: Statement = {
 
     "return" <Expr> ";" => Statement::Return(<>),
 
+    "nop" => Statement::NOP,
+
     // TODO: Multiple declarations in a single statement
     // U0 x = 0, y, z = 2; => x = 0; y = null; z = 2;
     VariableDeclaration,
@@ -252,13 +254,41 @@ FunctionDeclarationArgument: FunctionDeclarationArgument = {
 }
 
 VariableDeclaration: Statement = {
-    <ty:TypeIdentifier> <ident:Identifier> "=" <value:Expr> ";" => 
-        Statement::Assignment { ty, ident, value: Some(value) },
-
-    <ty:TypeIdentifier> <ident:Identifier> ";" =>
-        Statement::Assignment { ty, ident, value: None },
+    <mut ty:TypeIdentifier> <mut declarations:VariableDeclarationBody> ";" => {
+        if ty.is_pointer() {
+            ty = ty.remove_pointer();
+            // Safe, VariableDeclarationBody will only match if there is at least one.
+            let mut first = declarations.get_mut(0).unwrap();
+            first.ident = first.ident.clone().pointer();
+        }
+        Statement::Assignment { ty, declarations }
+    }
 }
+VariableDeclarationBody: Vec<VariableDeclaration> = {
+    <mut this:VariableDeclarationBody> "," <star:"*"?> <ident:Identifier> "=" <value:Expr> => {
+        this.push(VariableDeclaration {
+            ident: ident.maybe_pointer(star),
+            value: Some(value),
+        });
+        this
+    },
+    <mut this:VariableDeclarationBody> "," <star:"*"?> <ident:Identifier> => {
+        this.push(VariableDeclaration {
+            ident: ident.maybe_pointer(star),
+            value: None,
+        });
+        this
+    },
 
+    <ident:Identifier> "=" <value:Expr> => vec![VariableDeclaration {
+        ident,
+        value: Some(value),
+    }],
+    Identifier => vec![VariableDeclaration {
+        ident: <>,
+        value: None,
+    }],
+}
 ClassDefinition: Statement = {
     "extern" "class" <ident:TypeIdentifier> ";" => {
         Statement::ExternClass(ident)
@@ -271,7 +301,6 @@ ClassDefinition: Statement = {
         })
     }
 }
-
 ClassBody: Vec<ClassField> =
     "{" <Sep<ClassField, ";">> "}";
 
@@ -282,8 +311,6 @@ ClassField: ClassField = {
     <ty:TypeIdentifier> <name:Identifier> "=" <default_value:Expr> =>
         ClassField { ty, name, default_value: Some(default_value) },
 }
-
-
 
 Stmts: Vec<Statement> = {
     <mut this:Stmts> <next:Stmt> => {
@@ -354,6 +381,7 @@ extern {
         "TRUE" => Token::Keyword(Keyword::True),
         "FALSE" => Token::Keyword(Keyword::False),
         "lastclass" => Token::Keyword(Keyword::LastClass),
+        "nop" => Token::NOP,
         "," => Token::Comma,
         ";" => Token::Semicolon,
         "{" => Token::OpenCurly,

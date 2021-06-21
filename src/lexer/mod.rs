@@ -4,6 +4,8 @@ lazy_static::lazy_static! {
     pub static ref CHARS_RE: Regex = Regex::new(r#"'(?:[^"\\]|\\.)*'"#).unwrap();
 }
 
+use std::collections::{HashMap, VecDeque};
+
 use regex::Regex;
 
 use crate::lexer::tok::{Keyword, Operator};
@@ -17,6 +19,22 @@ pub use self::{
 pub mod err;
 pub mod pos;
 pub mod tok;
+
+fn first_rest<T: Clone>(v: &Vec<T>) -> Option<(T, Vec<T>)> {
+    let vector = v.clone();
+    if vector.len() == 0 {
+        return None;
+    }
+
+    let mut iter = vector.into_iter();
+
+    // Unwrap is safe, length check at the top
+    let first = iter.next().unwrap();
+
+    let rest = iter.collect::<Vec<T>>();
+
+    Some((first, rest))
+}
 
 fn is_ident_start(ch: &char) -> bool {
     match ch {
@@ -87,6 +105,8 @@ pub struct Lexer {
     seen_first: bool,
     last: Option<Token>,
     types: Vec<String>,
+    definitions: HashMap<String, Vec<Spanned>>,
+    token_buffer: VecDeque<Spanned>,
 }
 impl Lexer {
     pub fn new(input: &str) -> Self {
@@ -100,6 +120,8 @@ impl Lexer {
             seen_first: false,
             last: None,
             types: vec![],
+            definitions: HashMap::new(),
+            token_buffer: VecDeque::new(),
         }
     }
 
@@ -216,6 +238,16 @@ impl Lexer {
                 tok: Token::TypeIdent(ident_str),
                 end: self.location,
             })
+        } else if self.definitions.contains_key(&ident_str) {
+            if let Some((first, rest)) = first_rest(&self.definitions.get(&ident_str).unwrap()) {
+                for spanned in rest.into_iter() {
+                    self.token_buffer.push_back(spanned)
+                }
+
+                Some(first)
+            } else {
+                None
+            }
         } else {
             match &self.last {
                 Some(Token::Keyword(Keyword::Class)) => {
@@ -326,6 +358,62 @@ impl Lexer {
         }
     }
 
+    fn handle_define(&mut self, start: Location) -> Option<()> {
+        //                    #define A 5
+        // `start` is right here     ^
+        let mut buffer = String::new();
+        while let Some((_, ch)) = self.bump() {
+            if ch == '\n' {
+                break;
+            } else {
+                buffer.push(ch)
+            }
+        }
+        buffer = buffer.trim().into();
+
+        let mut idx = 0;
+        let ident = buffer
+            .chars()
+            .take_while(|ch| {
+                idx += 1;
+                !ch.is_whitespace()
+            })
+            .collect::<String>();
+        let rest = buffer.chars().skip(idx).collect::<String>();
+        let rest = rest.trim();
+
+        let mut lexer = Lexer::new(rest);
+
+        let mut toks = vec![];
+
+        while let Some(Ok((start, tok, end))) = lexer.next() {
+            toks.push(Spanned { start, tok, end })
+        }
+
+        println!("Encountered definition: {:?} = {:?}", ident, rest);
+        self.definitions.insert(ident, toks);
+
+        Some(())
+    }
+
+    fn directive(&mut self, start: Location, ch: char) -> Option<Spanned> {
+        let mut s = self
+            .text
+            .chars()
+            .skip(self.location.absolute.to_usize())
+            .take_while(char::is_ascii_lowercase)
+            .fold(String::new(), |mut s, ch| {
+                s.push(ch);
+                s
+            });
+
+        self.location = self.location.add(s.len());
+
+        self.handle_define(self.location)?;
+
+        Some(Spanned::nop(start, self.location))
+    }
+
     fn bump(&mut self) -> Option<(Location, char)> {
         match self.current() {
             Some(ch) => {
@@ -340,6 +428,9 @@ impl Iterator for Lexer {
     type Item = Result<FlattenedSpanned, LexicalError>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if !self.token_buffer.is_empty() {
+            return Ok(self.token_buffer.pop_front().map(Spanned::into_flattened)).transpose();
+        }
         while let Some((start, ch)) = self.bump() {
             let result = match ch {
                 ch if is_operator_char(&ch) => Some(
@@ -367,6 +458,10 @@ impl Iterator for Lexer {
                     self.chars_literal(start, ch)
                         .ok_or(LexicalError::InvalidChars(start)),
                 ),
+                '#' => Some(
+                    self.directive(start, ch)
+                        .ok_or(LexicalError::InvalidDirective(start)),
+                ),
                 _ => None,
             }
             .map(|res| res.map(Spanned::into_flattened));
@@ -379,6 +474,8 @@ impl Iterator for Lexer {
 
             return result;
         }
+
+        // println!("Definitions: {:#?}", self.definitions);
         None
     }
 }

@@ -41,7 +41,7 @@ class CBgtTemplate
 {
   CBgtTemplate *next,*last;
 
-  U0 start;
+  U0 start = BE_SIZE;
   U16 type		format "$$LS,D=\"ST_BGT_TEMPLATE_TYPES\"$$\n";
   U16 flags;
   U8 start_date[16]	format "$$DA-P,A=\"Start Date:%s\"$$\n";

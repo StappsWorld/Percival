@@ -123,9 +123,18 @@ impl fmt::Display for Location {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Spanned {
     pub start: Location,
     pub tok: Token,
     pub end: Location,
+}
+impl Spanned {
+    pub fn nop(start: Location, end: Location) -> Self {
+        Self {
+            start,
+            end,
+            tok: Token::NOP,
+        }
+    }
 }

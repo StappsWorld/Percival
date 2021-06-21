@@ -9,6 +9,7 @@ pub enum Token {
     TypeIdent(String),
     Operator(Operator),
     Keyword(Keyword),
+    NOP,
     Comma,
     Semicolon,
     OpenCurly,

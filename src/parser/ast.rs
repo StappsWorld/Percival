@@ -21,6 +21,20 @@ impl Identifier {
             self
         }
     }
+
+    pub fn remove_pointer(self) -> Self {
+        match self {
+            Self::Pointer(this) => *this,
+            _ => panic!("Internal error: Attempt to remove pointer from non pointer identifier"),
+        }
+    }
+
+    pub fn is_pointer(&self) -> bool {
+        match self {
+            Self::Pointer(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -94,8 +108,7 @@ pub enum Statement {
     Expr(Box<Expr>),
     Assignment {
         ty: Identifier,
-        ident: Identifier,
-        value: Option<Box<Expr>>,
+        declarations: Vec<VariableDeclaration>,
     },
     FunctionDeclaration {
         ty: Identifier,
@@ -118,11 +131,18 @@ pub enum Statement {
         body: Box<Statement>,
         otherwise: Option<Box<Else>>,
     },
+    NOP,
 }
 impl Statement {
     pub fn boxed(self) -> Box<Self> {
         Box::new(self)
     }
+}
+
+#[derive(Debug)]
+pub struct VariableDeclaration {
+    pub ident: Identifier,
+    pub value: Option<Box<Expr>>,
 }
 
 #[derive(Debug)]
