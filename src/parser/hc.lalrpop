@@ -13,7 +13,6 @@ Sep<T, S>: Vec<T> = {
     }
 }
 
-
 SepAtLeastOne<T, S>: Vec<T> = {
     <mut this:(<T> S)*> <next:T> => {
         this.push(next);
@@ -189,6 +188,8 @@ Stmt: Statement = {
 
     IfStatement,
 
+    PrintStringLiteralStatement,
+
     // TODO: WhileStatement,
 }
 
@@ -289,6 +290,8 @@ VariableDeclarationBody: Vec<VariableDeclaration> = {
         value: None,
     }],
 }
+
+// TODO - Implement class metadata (see '\examples\ClassMeta.hc')
 ClassDefinition: Statement = {
     "extern" "class" <ident:TypeIdentifier> ";" => {
         Statement::ExternClass(ident)
@@ -310,6 +313,15 @@ ClassField: ClassField = {
 
     <ty:TypeIdentifier> <name:Identifier> "=" <default_value:Expr> =>
         ClassField { ty, name, default_value: Some(default_value) },
+}
+
+PrintStringLiteralStatement: Statement = {
+    <format_string:LiteralString> "," <args:Sep<Expr, ",">> ";" => {
+        Statement::PrintStringLiteral {
+            string: format_string,
+            args: args.into_iter().map(|arg| arg.into()).collect(),
+        }
+    },
 }
 
 Stmts: Vec<Statement> = {

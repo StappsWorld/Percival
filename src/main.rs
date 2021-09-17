@@ -69,7 +69,7 @@ fn main() -> io::Result<()> {
             .collect::<Vec<_>>()
     );
     println!(
-        "{:#?}",
+        "Beginning to parse: \n{:#?}",
         parser::Parser::new().parse(lexer::Lexer::new(&file_contents))
     );
 

@@ -132,6 +132,10 @@ pub enum Statement {
         otherwise: Option<Box<Else>>,
     },
     NOP,
+    PrintStringLiteral {
+        string: String,
+        args: Vec<Box<Expr>>,
+    },
 }
 impl Statement {
     pub fn boxed(self) -> Box<Self> {

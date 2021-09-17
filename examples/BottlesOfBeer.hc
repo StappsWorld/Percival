@@ -11,7 +11,7 @@ U0 Main () {
 			"No more bottles of beer on the wall, no more bottles of beer.\n";
 			"Go to the store and buy some more, 99 bottles of beer on the wall.\n";
 		} else {
-			"%d bottles of beer on the wall, %d bottles of beer.\n",i,i;
+			"%d bottles of beer on the wall, %d bottles of beer.\n",j,i;
 			"Take one down and pass it around, %d bottle",(i-1);
 			if ((i-1) != 1) 
 				"s";
